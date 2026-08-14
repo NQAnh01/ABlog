@@ -19,13 +19,39 @@ const actions: Action[] = [
 ]
 
 function normalizeMarkdown(source: string) {
-  return source.split('\n').map(line => {
-    const opening = line.match(/^(\s*)```\s+([a-zA-Z0-9_+#.-]+)\s+(.+)$/)
-    if (opening) return `${opening[1]}\`\`\`${opening[2]}\n${opening[3]}`
-    const closing = line.match(/^(.*\S)\s+```\s*$/)
-    if (closing && !closing[1].trimStart().startsWith('```')) return `${closing[1]}\n\`\`\``
-    return line
-  }).join('\n')
+  const output: string[] = []
+  let inCodeBlock = false
+
+  for (const rawLine of source.replace(/\\`\\`\\`/g, '```').split(/\r?\n/)) {
+    let line = rawLine
+    if (!inCodeBlock) {
+      const fenceAt = line.indexOf('```')
+      if (fenceAt < 0) { output.push(line); continue }
+
+      const beforeFence = line.slice(0, fenceAt).trimEnd()
+      if (beforeFence) output.push(beforeFence)
+      const afterFence = line.slice(fenceAt + 3).trim()
+      const parts = afterFence.match(/^([a-zA-Z0-9_+#.-]+)(?:\s+([\s\S]*))?$/)
+      const language = parts?.[1] ?? ''
+      const firstCodeLine = parts?.[2] ?? ''
+      output.push(`\`\`\`${language}`)
+      if (firstCodeLine) output.push(firstCodeLine)
+      inCodeBlock = true
+      continue
+    }
+
+    const fenceAt = line.indexOf('```')
+    if (fenceAt < 0) { output.push(line); continue }
+    const codeBeforeFence = line.slice(0, fenceAt).trimEnd()
+    if (codeBeforeFence) output.push(codeBeforeFence)
+    output.push('```')
+    const afterFence = line.slice(fenceAt + 3).trim()
+    if (afterFence) output.push(afterFence)
+    inCodeBlock = false
+  }
+
+  if (inCodeBlock) output.push('```')
+  return output.join('\n')
 }
 
 function MarkdownCodeBlock({ children }: { children?: ReactNode }) {
