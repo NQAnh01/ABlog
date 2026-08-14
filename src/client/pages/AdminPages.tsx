@@ -1,0 +1,136 @@
+import { useEffect, useMemo, useState, type FormEvent, type KeyboardEvent } from 'react'
+import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { EmptyState, ErrorState, Layout, Loading } from '../components/ui'
+import { MarkdownEditor } from '../components/MarkdownEditor'
+import { useAuth } from '../hooks/useAuth'
+import { api } from '../services/api'
+import type { Category, Media, Post, PostInput, Tag } from '../types'
+
+function AdminGuard({ children }: { children: React.ReactNode }) {
+  const { user, loading } = useAuth()
+  if (loading) return <Layout><Loading /></Layout>
+  if (!user) return <Navigate to="/login" replace />
+  return <>{children}</>
+}
+
+function formatDate(value?: string) {
+  if (!value) return 'Not available'
+  return new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(value))
+}
+
+export function AdminPostsPage() {
+  const { user } = useAuth()
+  const [params, setParams] = useSearchParams()
+  const [posts, setPosts] = useState<Post[]>([])
+  const [total, setTotal] = useState(0)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const status = params.get('status') ?? ''
+  const query = params.get('q') ?? ''
+
+  useEffect(() => {
+    const search = new URLSearchParams({ limit: '50' })
+    if (status) search.set('status', status)
+    if (query) search.set('q', query)
+    setLoading(true)
+    api.myPosts(`?${search}`).then(result => { setPosts(result.items ?? []); setTotal(result.total) }).catch(err => setError(err instanceof Error ? err.message : 'Unable to load stories')).finally(() => setLoading(false))
+  }, [status, query])
+
+  async function remove(post: Post) {
+    if (!window.confirm(`Delete “${post.title}”? This action cannot be undone.`)) return
+    try { await api.deletePost(post.id); setPosts(current => current.filter(item => item.id !== post.id)); setTotal(value => value - 1) }
+    catch (err) { setError(err instanceof Error ? err.message : 'Unable to delete story') }
+  }
+
+  return <AdminGuard><Layout><section className="admin admin-dashboard container">
+    <header className="admin-heading"><div><span className="eyebrow">{user?.role === 'admin' ? 'EDITORIAL DESK' : 'YOUR WRITING DESK'}</span><h1>{user?.role === 'admin' ? 'All stories' : 'Your stories'}</h1><p>Write freely, then choose who can see each story.</p></div><Link className="button" to="/admin/posts/create">Create story&nbsp; +</Link></header>
+    <div className="admin-toolbar"><form onSubmit={event => { event.preventDefault(); const data = new FormData(event.currentTarget); const next = new URLSearchParams(params); const value = String(data.get('q') ?? '').trim(); value ? next.set('q', value) : next.delete('q'); setParams(next) }}><span>⌕</span><input name="q" defaultValue={query} placeholder="Search your stories" /></form><div className="status-tabs">{[['','All'],['private','Private'],['public','Public']].map(([value,label]) => <button className={status === value ? 'active' : ''} key={value} onClick={() => { const next = new URLSearchParams(params); value ? next.set('status', value) : next.delete('status'); setParams(next) }}>{label}</button>)}</div><span className="story-count">{total} {total === 1 ? 'story' : 'stories'}</span></div>
+    {error && <div className="admin-alert">{error}<button onClick={() => setError('')}>×</button></div>}
+    {loading ? <Loading /> : posts.length === 0 ? <EmptyState title="No stories here yet" text="Create a story and choose its visibility." /> : <div className="story-table"><div className="story-row story-table-head"><span>Story</span><span>Visibility</span><span>Last updated</span><span>Actions</span></div>{posts.map(post => <article className="story-row" key={post.id}><div className="story-identity">{post.thumbnail?.url ? <img src={post.thumbnail.url} alt="" /> : <span className="story-placeholder">L</span>}<div><Link to={`/admin/posts/${post.id}/edit`}>{post.title}</Link><small>/{post.slug}</small></div></div><span><i className={`status-dot ${post.status}`} />{post.status}</span><time>{formatDate(post.updated_at ?? post.created_at)}</time><div className="row-actions">{post.status === 'public' && <Link title="View story" to={`/blog/${post.slug}`}>↗</Link>}<Link title="Edit story" to={`/admin/posts/${post.id}/edit`}>Edit</Link><button title="Delete story" onClick={() => void remove(post)}>Delete</button></div></article>)}</div>}
+  </section></Layout></AdminGuard>
+}
+
+const emptyPost: PostInput = { title: '', slug: '', excerpt: '', content: '', status: 'private', category_ids: [], tag_ids: [] }
+function makeSlug(value: string) { return value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') }
+
+export function PostEditorPage() {
+  const { id } = useParams()
+  const navigate = useNavigate()
+  const editing = Boolean(id)
+  const [form, setForm] = useState<PostInput>(emptyPost)
+  const [categories, setCategories] = useState<Category[]>([])
+  const [tags, setTags] = useState<Tag[]>([])
+  const [loading, setLoading] = useState(editing)
+  const [saving, setSaving] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [error, setError] = useState('')
+  const [slugTouched, setSlugTouched] = useState(false)
+  const [addingTaxonomy, setAddingTaxonomy] = useState<'category' | 'tag' | null>(null)
+  const [taxonomyName, setTaxonomyName] = useState('')
+  const [taxonomyBusy, setTaxonomyBusy] = useState(false)
+  const words = useMemo(() => form.content.trim() ? form.content.trim().split(/\s+/).length : 0, [form.content])
+
+  useEffect(() => {
+    Promise.all([api.categories(), api.tags(), ...(id ? [api.myPost(id)] : [])]).then(([categoryData, tagData, post]) => {
+      setCategories((categoryData as Category[]) ?? []); setTags((tagData as Tag[]) ?? [])
+      if (post) { const value = post as Post; setForm({ title: value.title, slug: value.slug, excerpt: value.excerpt ?? '', content: value.content, status: value.status, thumbnail: value.thumbnail, category_ids: value.category_ids ?? [], tag_ids: value.tag_ids ?? [] }); setSlugTouched(true) }
+    }).catch(err => setError(err instanceof Error ? err.message : 'Unable to prepare the editor')).finally(() => setLoading(false))
+  }, [id])
+
+  function set<K extends keyof PostInput>(key: K, value: PostInput[K]) { setForm(current => ({ ...current, [key]: value })) }
+  function toggle(key: 'category_ids' | 'tag_ids', value: string) { setForm(current => ({ ...current, [key]: current[key].includes(value) ? current[key].filter(id => id !== value) : [...current[key], value] })) }
+
+  async function upload(file?: File) {
+    if (!file) return
+    setUploading(true); setError('')
+    try { const media: Media = await api.uploadImage(file); set('thumbnail', media) }
+    catch (err) { setError(err instanceof Error ? err.message : 'Unable to upload image') }
+    finally { setUploading(false) }
+  }
+
+  async function save() {
+    setSaving(true); setError('')
+    try {
+      const payload = { ...form, slug: form.slug || makeSlug(form.title) }
+      const saved = id ? await api.updatePost(id, payload) : await api.createPost(payload)
+      navigate(`/admin/posts/${saved.id}/edit`, { replace: true })
+      setForm(current => ({ ...current, status: saved.status, slug: saved.slug }))
+    } catch (err) { setError(err instanceof Error ? err.message : 'Unable to save story') }
+    finally { setSaving(false) }
+  }
+
+  async function createTaxonomy(kind: 'category' | 'tag') {
+    const name = taxonomyName.trim()
+    if (!name || taxonomyBusy) return
+    setTaxonomyBusy(true); setError('')
+    try {
+      if (kind === 'category') {
+        const saved = await api.createCategory({ name, slug: makeSlug(name), description: '' })
+        setCategories(current => [...current, saved])
+        setForm(current => ({ ...current, category_ids: [...current.category_ids, saved.id] }))
+      } else {
+        const saved = await api.createTag({ name, slug: makeSlug(name) })
+        setTags(current => [...current, saved])
+        setForm(current => ({ ...current, tag_ids: [...current.tag_ids, saved.id] }))
+      }
+      setTaxonomyName(''); setAddingTaxonomy(null)
+    } catch (err) { setError(err instanceof Error ? err.message : `Unable to create ${kind}`) }
+    finally { setTaxonomyBusy(false) }
+  }
+
+  function taxonomyKeyDown(event: KeyboardEvent<HTMLInputElement>, kind: 'category' | 'tag') {
+    if (event.key === 'Enter') { event.preventDefault(); void createTaxonomy(kind) }
+    if (event.key === 'Escape') { setAddingTaxonomy(null); setTaxonomyName('') }
+  }
+
+  function submit(event: FormEvent) { event.preventDefault(); void save() }
+  if (loading) return <AdminGuard><Layout><Loading /></Layout></AdminGuard>
+
+  return <AdminGuard><Layout><><section className="post-editor-page container"><header className="editor-topbar"><div><Link to="/admin/posts">← &nbsp;All stories</Link><span>{editing ? 'EDITING STORY' : 'NEW STORY'}</span></div><div><span className="save-state">{saving ? 'Saving…' : `${words} words`}</span><button className="button" disabled={saving} onClick={() => void save()}>Save story</button></div></header>
+    {error && <div className="admin-alert">{error}<button onClick={() => setError('')}>×</button></div>}
+    <form className="post-editor" onSubmit={submit}><div className="editor-main"><label className="editor-title"><span>Story title</span><textarea value={form.title} maxLength={180} onChange={event => { const title = event.target.value; set('title', title); if (!slugTouched) set('slug', makeSlug(title)) }} placeholder="Give your story a thoughtful title" required /></label><label className="editor-slug"><span>lumina.blog/blog/</span><input value={form.slug} onChange={event => { setSlugTouched(true); set('slug', makeSlug(event.target.value)) }} placeholder="story-slug" /></label><label className="editor-excerpt"><span>Excerpt <small>{form.excerpt.length}/320</small></span><textarea value={form.excerpt} maxLength={320} onChange={event => set('excerpt', event.target.value)} placeholder="A concise invitation into the story…" /></label><div className="editor-content"><span>Story</span><MarkdownEditor value={form.content} onChange={value => set('content', value)} onError={setError} /></div></div>
+      <aside className="editor-sidebar"><section><div className="sidebar-heading"><span>Cover image</span>{form.thumbnail && <button type="button" onClick={() => set('thumbnail', undefined)}>Remove</button>}</div><label className={`cover-upload ${form.thumbnail ? 'has-image' : ''}`}>{form.thumbnail ? <img src={form.thumbnail.url} alt="Story cover preview" /> : <><b>{uploading ? 'Uploading…' : '＋'}</b><strong>Upload a cover</strong><small>JPEG, PNG or WebP · max 5 MB</small></>}<input type="file" accept="image/jpeg,image/png,image/webp" disabled={uploading} onChange={event => void upload(event.target.files?.[0])} /></label></section><section><div className="sidebar-heading"><span>Category</span><button type="button" aria-label="Add category" onClick={() => { setAddingTaxonomy('category'); setTaxonomyName('') }}>＋</button></div>{addingTaxonomy === 'category' && <input className="inline-taxonomy-input" autoFocus value={taxonomyName} disabled={taxonomyBusy} onChange={event => setTaxonomyName(event.target.value)} onKeyDown={event => taxonomyKeyDown(event, 'category')} onBlur={() => !taxonomyBusy && !taxonomyName.trim() && setAddingTaxonomy(null)} placeholder="Name, then press Enter" />}<div className="editor-options">{categories.map(category => <label key={category.id}><input type="checkbox" checked={form.category_ids.includes(category.id)} onChange={() => toggle('category_ids', category.id)} /><span>{category.name}</span></label>)}</div></section><section><div className="sidebar-heading"><span>Tags</span><button type="button" aria-label="Add tag" onClick={() => { setAddingTaxonomy('tag'); setTaxonomyName('') }}>＋</button></div>{addingTaxonomy === 'tag' && <input className="inline-taxonomy-input" autoFocus value={taxonomyName} disabled={taxonomyBusy} onChange={event => setTaxonomyName(event.target.value)} onKeyDown={event => taxonomyKeyDown(event, 'tag')} onBlur={() => !taxonomyBusy && !taxonomyName.trim() && setAddingTaxonomy(null)} placeholder="Name, then press Enter" />}<div className="tag-options">{tags.map(tag => <button type="button" className={form.tag_ids.includes(tag.id) ? 'selected' : ''} key={tag.id} onClick={() => toggle('tag_ids', tag.id)}>#{tag.name}</button>)}</div></section><section className="publish-note"><span>Visibility</span><div className="editor-options"><label><input type="radio" name="visibility" checked={form.status === 'private'} onChange={() => set('status', 'private')} /><span>Private — only you can see it</span></label><label><input type="radio" name="visibility" checked={form.status === 'public'} onChange={() => set('status', 'public')} /><span>Public — everyone can see it</span></label></div></section></aside>
+    </form></section></></Layout></AdminGuard>
+}
+
+export function PlaceholderPage({ title }: { title: string }) { return <Layout><section className="admin container"><span className="eyebrow">LUMINA</span><h1>{title}</h1><p>This route is ready for the next editorial workflow.</p></section></Layout> }

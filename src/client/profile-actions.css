@@ -1,0 +1,25 @@
+.profile-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.theme-dark .profile-actions .editor-ghost {
+  border-color: #454653;
+  color: #bdc2ff;
+}
+
+@media (max-width: 560px) {
+  .profile-actions {
+    width: 100%;
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .profile-actions a {
+    justify-content: center;
+    text-align: center;
+  }
+}
+.status-dot.public{background:#317a52}.profile-status.public{background:#183d2c;color:#a9e8c4}
+.profile-story-grid>article[role=link]{cursor:pointer;transition:border-color .2s,transform .2s,box-shadow .2s}.profile-story-grid>article[role=link]:hover,.profile-story-grid>article[role=link]:focus-visible{border-color:#818cf8;box-shadow:0 12px 28px rgba(0,0,0,.22);transform:translateY(-2px);outline:none}.profile-story-grid .profile-status{border:0;cursor:pointer}.profile-story-grid .profile-status:disabled{cursor:wait;opacity:.65}.profile-story-grid footer>span{color:#8f9ab5;font-weight:500}.preview-actions{display:flex;align-items:center;gap:18px;width:min(1120px,100%);margin:0 auto 55px;color:#bdc2ff;font-size:13px;font-weight:700}.preview-actions .profile-status{margin-left:auto}.story-preview>header{width:min(720px,100%)}@media(max-width:560px){.preview-actions{margin-bottom:36px}.profile-story-grid footer>span{display:none}}
