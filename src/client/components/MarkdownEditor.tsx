@@ -1,4 +1,4 @@
-import { isValidElement, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
+import { isValidElement, useEffect, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { api } from '../services/api'
@@ -68,7 +68,37 @@ function MarkdownCodeBlock({ children }: { children?: ReactNode }) {
 }
 
 export function MarkdownView({ children }: { children: string }) {
-  return <div className="markdown-body"><ReactMarkdown remarkPlugins={[remarkGfm]} components={{ pre: MarkdownCodeBlock }}>{normalizeMarkdown(children)}</ReactMarkdown></div>
+  const [preview, setPreview] = useState<{ src: string; alt: string } | null>(null)
+
+  useEffect(() => {
+    if (!preview) return
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    function closeOnEscape(event: globalThis.KeyboardEvent) { if (event.key === 'Escape') setPreview(null) }
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [preview])
+
+  return <><div className="markdown-body"><ReactMarkdown remarkPlugins={[remarkGfm]} components={{
+    pre: MarkdownCodeBlock,
+    img: ({ src, alt }) => src ? <button className="markdown-image-button" type="button" onClick={() => setPreview({ src, alt: alt ?? '' })} aria-label={`View image${alt ? `: ${alt}` : ''}`}><img src={src} alt={alt ?? ''} loading="lazy" /></button> : null,
+  }}>{normalizeMarkdown(children)}</ReactMarkdown></div>{preview && <div className="image-lightbox" role="dialog" aria-modal="true" aria-label="Image preview" onMouseDown={event => { if (event.target === event.currentTarget) setPreview(null) }}><button className="image-lightbox-close" type="button" onClick={() => setPreview(null)} aria-label="Close image preview">×</button><img src={preview.src} alt={preview.alt} />{preview.alt && <p>{preview.alt}</p>}</div>}</>
+}
+
+export function PreviewableImage({ src, alt, className }: { src: string; alt: string; className?: string }) {
+  const [open, setOpen] = useState(false)
+  useEffect(() => {
+    if (!open) return
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    function closeOnEscape(event: globalThis.KeyboardEvent) { if (event.key === 'Escape') setOpen(false) }
+    document.addEventListener('keydown', closeOnEscape)
+    return () => { document.body.style.overflow = previousOverflow; document.removeEventListener('keydown', closeOnEscape) }
+  }, [open])
+  return <><button className={`previewable-image${className ? ` ${className}-trigger` : ''}`} type="button" onClick={() => setOpen(true)} aria-label={`View image: ${alt}`}><img className={className} src={src} alt={alt} /></button>{open && <div className="image-lightbox" role="dialog" aria-modal="true" aria-label="Image preview" onMouseDown={event => { if (event.target === event.currentTarget) setOpen(false) }}><button className="image-lightbox-close" type="button" onClick={() => setOpen(false)} aria-label="Close image preview">×</button><img src={src} alt={alt} />{alt && <p>{alt}</p>}</div>}</>
 }
 
 export function MarkdownEditor({ value, onChange, onError }: Props) {

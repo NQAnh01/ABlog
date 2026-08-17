@@ -161,6 +161,9 @@ JWT_REFRESH_EXPIRES=168h
 
 STORAGE_TYPE=local
 STORAGE_PATH=uploads
+CLOUDINARY_CLOUD_NAME=
+CLOUDINARY_API_KEY=
+CLOUDINARY_API_SECRET=
 
 SEED_ADMIN_EMAIL=admin@lumina.local
 SEED_ADMIN_PASSWORD=mat-khau-development-du-manh
@@ -262,13 +265,26 @@ JWT_REFRESH_EXPIRES=168h
 
 ### `STORAGE_TYPE`
 
-Hiện chỉ có implementation local, giữ:
+Mặc định ứng dụng lưu ảnh local:
 
 ```env
 STORAGE_TYPE=local
 ```
 
-Project đã có abstraction để bổ sung Cloudflare R2 nhưng phiên bản hiện tại chưa cần R2 credentials.
+Để upload avatar, cover và ảnh Markdown lên Cloudinary:
+
+1. Tạo Cloudinary account và mở Dashboard.
+2. Lấy `Cloud name`, `API key` và `API secret`.
+3. Cấu hình local trong `.env`, hoặc đặt cùng tên biến trong Secret/Environment Variables của nền tảng deploy:
+
+```env
+STORAGE_TYPE=cloudinary
+CLOUDINARY_CLOUD_NAME=your-cloud-name
+CLOUDINARY_API_KEY=your-api-key
+CLOUDINARY_API_SECRET=your-api-secret
+```
+
+Frontend vẫn gọi `/api/me/uploads` và `/api/me/avatar` như cũ. Go API kiểm tra đăng nhập, loại file và giới hạn dung lượng, sau đó ký request và upload lên Cloudinary. `CLOUDINARY_API_SECRET` chỉ tồn tại ở backend và tuyệt đối không dùng tiền tố `VITE_`.
 
 ### `STORAGE_PATH`
 

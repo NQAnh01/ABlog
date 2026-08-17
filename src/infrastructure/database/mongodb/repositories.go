@@ -99,7 +99,7 @@ func (r *Posts) List(ctx context.Context, f repository.PostFilter) ([]model.Post
 		f.Page = 1
 	}
 	if f.Limit < 1 || f.Limit > 100 {
-		f.Limit = 12
+		f.Limit = 20
 	}
 	total, e := r.c.CountDocuments(ctx, q)
 	if e != nil {

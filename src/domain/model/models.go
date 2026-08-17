@@ -34,6 +34,7 @@ type Post struct {
 	PublishedAt *time.Time           `bson:"published_at,omitempty" json:"published_at,omitempty"`
 	CreatedAt   time.Time            `bson:"created_at" json:"created_at"`
 	UpdatedAt   time.Time            `bson:"updated_at" json:"updated_at"`
+	Author      *User                `bson:"-" json:"author,omitempty"`
 }
 type Category struct {
 	ID          primitive.ObjectID `bson:"_id,omitempty" json:"id"`

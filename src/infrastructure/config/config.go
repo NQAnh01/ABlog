@@ -8,14 +8,14 @@ import (
 )
 
 type Config struct {
-	Env, Port, MongoURI, MongoDatabase, JWTSecret, StoragePath, ClientOrigin string
-	AccessTTL, RefreshTTL                                                    time.Duration
-	SeedAdminEmail, SeedAdminPassword                                        string
+	Env, Port, MongoURI, MongoDatabase, JWTSecret, StorageType, StoragePath, CloudinaryCloudName, CloudinaryAPIKey, CloudinaryAPISecret, ClientOrigin string
+	AccessTTL, RefreshTTL                                                                                                                             time.Duration
+	SeedAdminEmail, SeedAdminPassword                                                                                                                 string
 }
 
 func Load() Config {
 	return Config{
-		Env: env("APP_ENV", "development"), Port: env("APP_PORT", "8080"), MongoURI: mongoURI(), MongoDatabase: env("MONGO_DATABASE", "lumina"), JWTSecret: env("JWT_SECRET", "development-only-change-me"), StoragePath: env("STORAGE_PATH", "uploads"), ClientOrigin: env("CLIENT_ORIGIN", "http://localhost:5173"), AccessTTL: duration("JWT_ACCESS_EXPIRES", 15*time.Minute), RefreshTTL: duration("JWT_REFRESH_EXPIRES", 7*24*time.Hour), SeedAdminEmail: os.Getenv("SEED_ADMIN_EMAIL"), SeedAdminPassword: os.Getenv("SEED_ADMIN_PASSWORD"),
+		Env: env("APP_ENV", "development"), Port: env("APP_PORT", "8080"), MongoURI: mongoURI(), MongoDatabase: env("MONGO_DATABASE", "lumina"), JWTSecret: env("JWT_SECRET", "development-only-change-me"), StorageType: env("STORAGE_TYPE", "local"), StoragePath: env("STORAGE_PATH", "uploads"), CloudinaryCloudName: os.Getenv("CLOUDINARY_CLOUD_NAME"), CloudinaryAPIKey: os.Getenv("CLOUDINARY_API_KEY"), CloudinaryAPISecret: os.Getenv("CLOUDINARY_API_SECRET"), ClientOrigin: env("CLIENT_ORIGIN", "http://localhost:5173"), AccessTTL: duration("JWT_ACCESS_EXPIRES", 15*time.Minute), RefreshTTL: duration("JWT_REFRESH_EXPIRES", 7*24*time.Hour), SeedAdminEmail: os.Getenv("SEED_ADMIN_EMAIL"), SeedAdminPassword: os.Getenv("SEED_ADMIN_PASSWORD"),
 	}
 }
 

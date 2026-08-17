@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState, type FormEvent, type KeyboardEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { EmptyState, ErrorState, Layout, Loading } from '../components/ui'
+import { EmptyState, ErrorState, Layout, Loading, Pagination } from '../components/ui'
 import { MarkdownEditor } from '../components/MarkdownEditor'
 import { useAuth } from '../hooks/useAuth'
 import { api } from '../services/api'
@@ -27,14 +27,16 @@ export function AdminPostsPage() {
   const [error, setError] = useState('')
   const status = params.get('status') ?? ''
   const query = params.get('q') ?? ''
+  const page = Math.max(1, Number(params.get('page')) || 1)
 
   useEffect(() => {
-    const search = new URLSearchParams({ limit: '50' })
+    const search = new URLSearchParams()
+    search.set('page', String(page))
     if (status) search.set('status', status)
     if (query) search.set('q', query)
     setLoading(true)
     api.myPosts(`?${search}`).then(result => { setPosts(result.items ?? []); setTotal(result.total) }).catch(err => setError(err instanceof Error ? err.message : 'Unable to load stories')).finally(() => setLoading(false))
-  }, [status, query])
+  }, [status, query, page])
 
   async function remove(post: Post) {
     if (!window.confirm(`Delete “${post.title}”? This action cannot be undone.`)) return
@@ -47,11 +49,65 @@ export function AdminPostsPage() {
     <div className="admin-toolbar"><form onSubmit={event => { event.preventDefault(); const data = new FormData(event.currentTarget); const next = new URLSearchParams(params); const value = String(data.get('q') ?? '').trim(); value ? next.set('q', value) : next.delete('q'); setParams(next) }}><span>⌕</span><input name="q" defaultValue={query} placeholder="Search your stories" /></form><div className="status-tabs">{[['','All'],['private','Private'],['public','Public']].map(([value,label]) => <button className={status === value ? 'active' : ''} key={value} onClick={() => { const next = new URLSearchParams(params); value ? next.set('status', value) : next.delete('status'); setParams(next) }}>{label}</button>)}</div><span className="story-count">{total} {total === 1 ? 'story' : 'stories'}</span></div>
     {error && <div className="admin-alert">{error}<button onClick={() => setError('')}>×</button></div>}
     {loading ? <Loading /> : posts.length === 0 ? <EmptyState title="No stories here yet" text="Create a story and choose its visibility." /> : <div className="story-table"><div className="story-row story-table-head"><span>Story</span><span>Visibility</span><span>Last updated</span><span>Actions</span></div>{posts.map(post => <article className="story-row" key={post.id}><div className="story-identity">{post.thumbnail?.url ? <img src={post.thumbnail.url} alt="" /> : <span className="story-placeholder">L</span>}<div><Link to={`/admin/posts/${post.id}/edit`}>{post.title}</Link><small>/{post.slug}</small></div></div><span><i className={`status-dot ${post.status}`} />{post.status}</span><time>{formatDate(post.updated_at ?? post.created_at)}</time><div className="row-actions">{post.status === 'public' && <Link title="View story" to={`/blog/${post.slug}`}>↗</Link>}<Link title="Edit story" to={`/admin/posts/${post.id}/edit`}>Edit</Link><button title="Delete story" onClick={() => void remove(post)}>Delete</button></div></article>)}</div>}
+    <Pagination page={page} total={total} onPage={next => { const value = new URLSearchParams(params); next > 1 ? value.set('page', String(next)) : value.delete('page'); setParams(value) }} />
   </section></Layout></AdminGuard>
 }
 
 const emptyPost: PostInput = { title: '', slug: '', excerpt: '', content: '', status: 'private', category_ids: [], tag_ids: [] }
 function makeSlug(value: string) { return value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') }
+
+function TagSelector({ tags, selected, onTagsChange, onSelectedChange, onError }: { tags: Tag[]; selected: string[]; onTagsChange: (tags: Tag[]) => void; onSelectedChange: (ids: string[]) => void; onError: (message: string) => void }) {
+  const root = useRef<HTMLElement>(null)
+  const [query, setQuery] = useState('')
+  const [open, setOpen] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [managing, setManaging] = useState(false)
+  const [editing, setEditing] = useState<string | null>(null)
+  const [editName, setEditName] = useState('')
+  const normalized = query.trim().toLocaleLowerCase()
+  const available = tags.filter(tag => !selected.includes(tag.id) && (!normalized || tag.name.toLocaleLowerCase().includes(normalized)))
+  const exactMatch = tags.some(tag => tag.name.toLocaleLowerCase() === normalized)
+
+  useEffect(() => {
+    function closeOnOutside(event: MouseEvent) {
+      if (!root.current?.contains(event.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', closeOnOutside)
+    return () => document.removeEventListener('mousedown', closeOnOutside)
+  }, [])
+
+  function select(id: string) { onSelectedChange([...selected, id]); setQuery(''); setOpen(true) }
+  async function create() {
+    const name = query.trim()
+    if (!name || exactMatch || busy) return
+    setBusy(true); onError('')
+    try {
+      const saved = await api.createTag({ name, slug: makeSlug(name) })
+      onTagsChange([...tags, saved]); onSelectedChange([...selected, saved.id]); setQuery(''); setOpen(true)
+    } catch (err) { onError(err instanceof Error ? err.message : 'Unable to create tag') }
+    finally { setBusy(false) }
+  }
+  async function saveTag(tag: Tag) {
+    const name = editName.trim()
+    if (name.length < 2 || busy) return
+    setBusy(true); onError('')
+    try {
+      const saved = await api.updateTag(tag.id, { name, slug: makeSlug(name) })
+      onTagsChange(tags.map(item => item.id === saved.id ? saved : item)); setEditing(null); setEditName('')
+    } catch (err) { onError(err instanceof Error ? err.message : 'Unable to update tag') }
+    finally { setBusy(false) }
+  }
+  async function removeTag(tag: Tag) {
+    if (!window.confirm(`Delete tag “${tag.name}”? It will be removed from the tag library.`)) return
+    setBusy(true); onError('')
+    try {
+      await api.deleteTag(tag.id); onTagsChange(tags.filter(item => item.id !== tag.id)); onSelectedChange(selected.filter(id => id !== tag.id)); if (editing === tag.id) setEditing(null)
+    } catch (err) { onError(err instanceof Error ? err.message : 'Unable to delete tag') }
+    finally { setBusy(false) }
+  }
+
+  return <section className={`tag-section${open ? ' dropdown-open' : ''}`} ref={root}><div className="sidebar-heading"><span>Tags</span><button className="manage-tags-button" type="button" onClick={() => setManaging(value => !value)}>{managing ? 'Done' : 'Manage'}</button></div><div className="selected-tags">{selected.map(id => { const tag = tags.find(item => item.id === id); return tag ? <span key={id}>#{tag.name}<button type="button" aria-label={`Remove ${tag.name}`} onClick={() => onSelectedChange(selected.filter(value => value !== id))}>×</button></span> : null })}{!selected.length && <small>No tags selected</small>}</div><div className="tag-combobox"><input value={query} disabled={busy} placeholder="Search or create a tag…" onFocus={() => setOpen(true)} onChange={event => { setQuery(event.target.value); setOpen(true) }} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); if (available.length && exactMatch) select(available[0].id); else void create() } if (event.key === 'Escape') setOpen(false) }} />{open && <div className="tag-dropdown">{available.slice(0, 20).map(tag => <button type="button" key={tag.id} onMouseDown={event => event.preventDefault()} onClick={() => select(tag.id)}>#{tag.name}</button>)}{normalized && !exactMatch && <button className="create-tag-option" type="button" onMouseDown={event => event.preventDefault()} onClick={() => void create()}><span>Create “{query.trim()}”</span><small>Press Enter</small></button>}{!available.length && (!normalized || exactMatch) && <p>{normalized ? 'This tag is already selected.' : 'Type to find a tag.'}</p>}</div>}</div>{managing && <div className="tag-manager"><p>Rename or permanently delete tags from your library.</p>{tags.map(tag => <div className="tag-manager-row" key={tag.id}>{editing === tag.id ? <><input autoFocus value={editName} disabled={busy} onChange={event => setEditName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); void saveTag(tag) } if (event.key === 'Escape') setEditing(null) }} /><button type="button" onClick={() => void saveTag(tag)}>Save</button><button type="button" onClick={() => setEditing(null)}>Cancel</button></> : <><span>#{tag.name}</span><button type="button" onClick={() => { setEditing(tag.id); setEditName(tag.name) }}>Edit</button><button className="delete-tag" type="button" onClick={() => void removeTag(tag)}>Delete</button></>}</div>)}</div>}</section>
+}
 
 export function PostEditorPage() {
   const { id } = useParams()
@@ -129,7 +185,7 @@ export function PostEditorPage() {
   return <AdminGuard><Layout><><section className="post-editor-page container"><header className="editor-topbar"><div><Link to="/admin/posts">← &nbsp;All stories</Link><span>{editing ? 'EDITING STORY' : 'NEW STORY'}</span></div><div><span className="save-state">{saving ? 'Saving…' : `${words} words`}</span><button className="button" disabled={saving} onClick={() => void save()}>Save story</button></div></header>
     {error && <div className="admin-alert">{error}<button onClick={() => setError('')}>×</button></div>}
     <form className="post-editor" onSubmit={submit}><div className="editor-main"><label className="editor-title"><span>Story title</span><textarea value={form.title} maxLength={180} onChange={event => { const title = event.target.value; set('title', title); if (!slugTouched) set('slug', makeSlug(title)) }} placeholder="Give your story a thoughtful title" required /></label><label className="editor-slug"><span>lumina.blog/blog/</span><input value={form.slug} onChange={event => { setSlugTouched(true); set('slug', makeSlug(event.target.value)) }} placeholder="story-slug" /></label><label className="editor-excerpt"><span>Excerpt <small>{form.excerpt.length}/320</small></span><textarea value={form.excerpt} maxLength={320} onChange={event => set('excerpt', event.target.value)} placeholder="A concise invitation into the story…" /></label><div className="editor-content"><span>Story</span><MarkdownEditor value={form.content} onChange={value => set('content', value)} onError={setError} /></div></div>
-      <aside className="editor-sidebar"><section><div className="sidebar-heading"><span>Cover image</span>{form.thumbnail && <button type="button" onClick={() => set('thumbnail', undefined)}>Remove</button>}</div><label className={`cover-upload ${form.thumbnail ? 'has-image' : ''}`}>{form.thumbnail ? <img src={form.thumbnail.url} alt="Story cover preview" /> : <><b>{uploading ? 'Uploading…' : '＋'}</b><strong>Upload a cover</strong><small>JPEG, PNG or WebP · max 5 MB</small></>}<input type="file" accept="image/jpeg,image/png,image/webp" disabled={uploading} onChange={event => void upload(event.target.files?.[0])} /></label></section><section><div className="sidebar-heading"><span>Category</span><button type="button" aria-label="Add category" onClick={() => { setAddingTaxonomy('category'); setTaxonomyName('') }}>＋</button></div>{addingTaxonomy === 'category' && <input className="inline-taxonomy-input" autoFocus value={taxonomyName} disabled={taxonomyBusy} onChange={event => setTaxonomyName(event.target.value)} onKeyDown={event => taxonomyKeyDown(event, 'category')} onBlur={() => !taxonomyBusy && !taxonomyName.trim() && setAddingTaxonomy(null)} placeholder="Name, then press Enter" />}<div className="editor-options">{categories.map(category => <label key={category.id}><input type="checkbox" checked={form.category_ids.includes(category.id)} onChange={() => toggle('category_ids', category.id)} /><span>{category.name}</span></label>)}</div></section><section><div className="sidebar-heading"><span>Tags</span><button type="button" aria-label="Add tag" onClick={() => { setAddingTaxonomy('tag'); setTaxonomyName('') }}>＋</button></div>{addingTaxonomy === 'tag' && <input className="inline-taxonomy-input" autoFocus value={taxonomyName} disabled={taxonomyBusy} onChange={event => setTaxonomyName(event.target.value)} onKeyDown={event => taxonomyKeyDown(event, 'tag')} onBlur={() => !taxonomyBusy && !taxonomyName.trim() && setAddingTaxonomy(null)} placeholder="Name, then press Enter" />}<div className="tag-options">{tags.map(tag => <button type="button" className={form.tag_ids.includes(tag.id) ? 'selected' : ''} key={tag.id} onClick={() => toggle('tag_ids', tag.id)}>#{tag.name}</button>)}</div></section><section className="publish-note"><span>Visibility</span><div className="editor-options"><label><input type="radio" name="visibility" checked={form.status === 'private'} onChange={() => set('status', 'private')} /><span>Private — only you can see it</span></label><label><input type="radio" name="visibility" checked={form.status === 'public'} onChange={() => set('status', 'public')} /><span>Public — everyone can see it</span></label></div></section></aside>
+      <aside className="editor-sidebar"><section><div className="sidebar-heading"><span>Cover image</span>{form.thumbnail && <button type="button" onClick={() => set('thumbnail', undefined)}>Remove</button>}</div><label className={`cover-upload ${form.thumbnail ? 'has-image' : ''}`}>{form.thumbnail ? <img src={form.thumbnail.url} alt="Story cover preview" /> : <><b>{uploading ? 'Uploading…' : '＋'}</b><strong>Upload a cover</strong><small>JPEG, PNG or WebP · max 5 MB</small></>}<input type="file" accept="image/jpeg,image/png,image/webp" disabled={uploading} onChange={event => void upload(event.target.files?.[0])} /></label></section><section><div className="sidebar-heading"><span>Category</span><button type="button" aria-label="Add category" onClick={() => { setAddingTaxonomy('category'); setTaxonomyName('') }}>＋</button></div>{addingTaxonomy === 'category' && <input className="inline-taxonomy-input" autoFocus value={taxonomyName} disabled={taxonomyBusy} onChange={event => setTaxonomyName(event.target.value)} onKeyDown={event => taxonomyKeyDown(event, 'category')} onBlur={() => !taxonomyBusy && !taxonomyName.trim() && setAddingTaxonomy(null)} placeholder="Name, then press Enter" />}<div className="editor-options category-options">{categories.map(category => <label key={category.id}><input type="checkbox" checked={form.category_ids.includes(category.id)} onChange={() => toggle('category_ids', category.id)} /><span>{category.name}</span></label>)}</div></section><TagSelector tags={tags} selected={form.tag_ids} onTagsChange={setTags} onSelectedChange={ids => set('tag_ids', ids)} onError={setError}/><section className="publish-note"><span>Visibility</span><div className="editor-options"><label><input type="radio" name="visibility" checked={form.status === 'private'} onChange={() => set('status', 'private')} /><span>Private — only you can see it</span></label><label><input type="radio" name="visibility" checked={form.status === 'public'} onChange={() => set('status', 'public')} /><span>Public — everyone can see it</span></label></div></section></aside>
     </form></section></></Layout></AdminGuard>
 }
 

@@ -37,7 +37,15 @@ func main() {
 	posts := post.Service{Repo: repos.Posts}
 	comments := comment.Service{Comments: repos.Comments, Posts: repos.Posts}
 	taxonomies := taxonomy.Service{Repo: repos.Taxonomy}
-	server := api.New(cfg, auth, posts, comments, taxonomies, storage.Local{Root: cfg.StoragePath, BaseURL: "/uploads"})
+	var objectStorage storage.Storage = storage.Local{Root: cfg.StoragePath, BaseURL: "/uploads"}
+	if cfg.StorageType == "cloudinary" {
+		cloudinaryStorage, storageErr := storage.NewCloudinary(cfg.CloudinaryCloudName, cfg.CloudinaryAPIKey, cfg.CloudinaryAPISecret)
+		if storageErr != nil {
+			log.Fatalf("configure Cloudinary: %v", storageErr)
+		}
+		objectStorage = cloudinaryStorage
+	}
+	server := api.New(cfg, auth, posts, comments, taxonomies, objectStorage)
 	go func() {
 		if err := server.App.Listen(":" + cfg.Port); err != nil {
 			log.Printf("server stopped: %v", err)

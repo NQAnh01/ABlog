@@ -3,10 +3,12 @@ import ReactDOM from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import App from './App'
 import { AuthProvider } from './hooks/useAuth'
+import { BookmarkProvider } from './hooks/useBookmarks'
 import './styles.css'
 import './inline-taxonomy.css'
 import './settings.css'
 import './profile-actions.css'
 import './avatar.css'
 import './markdown-view.css'
-ReactDOM.createRoot(document.getElementById('root')!).render(<React.StrictMode><BrowserRouter><AuthProvider><App/></AuthProvider></BrowserRouter></React.StrictMode>)
+import './theme.css'
+ReactDOM.createRoot(document.getElementById('root')!).render(<React.StrictMode><BrowserRouter><AuthProvider><BookmarkProvider><App/></BookmarkProvider></AuthProvider></BrowserRouter></React.StrictMode>)

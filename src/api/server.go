@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
@@ -80,6 +81,7 @@ func (s *Server) routes() {
 	mine.Put("/categories/:id", s.saveCategory)
 	mine.Post("/tags", s.saveTag)
 	mine.Put("/tags/:id", s.saveTag)
+	mine.Delete("/tags/:id", s.deleteTag)
 	admin := api.Group("/admin", s.requireAuth, s.requireAdmin)
 	admin.Get("/posts", s.adminListPosts)
 	admin.Get("/posts/:id", s.adminGetPost)
@@ -162,11 +164,12 @@ func (s *Server) cookie(c *fiber.Ctx, v string) {
 func (s *Server) me(c *fiber.Ctx) error { return success(c, 200, c.Locals("user")) }
 func (s *Server) listPosts(c *fiber.Ctx) error {
 	page, _ := strconv.Atoi(c.Query("page", "1"))
-	limit, _ := strconv.Atoi(c.Query("limit", "12"))
+	limit, _ := strconv.Atoi(c.Query("limit", "20"))
 	items, total, e := s.posts.List(c.UserContext(), repository.PostFilter{Status: "public", Search: c.Query("q"), Category: c.Query("category"), Tag: c.Query("tag"), Page: page, Limit: limit})
 	if e != nil {
 		return e
 	}
+	s.populateAuthors(c.UserContext(), items)
 	return success(c, 200, fiber.Map{"items": items, "page": page, "limit": limit, "total": total})
 }
 func (s *Server) getPost(c *fiber.Ctx) error {
@@ -174,7 +177,27 @@ func (s *Server) getPost(c *fiber.Ctx) error {
 	if e != nil {
 		return fiber.ErrNotFound
 	}
+	if u, err := s.auth.Users.FindByID(c.UserContext(), p.AuthorID); err == nil {
+		p.Author = u
+	}
 	return success(c, 200, p)
+}
+func (s *Server) populateAuthors(ctx context.Context, posts []model.Post) {
+	seen := map[primitive.ObjectID]*model.User{}
+	for i := range posts {
+		aid := posts[i].AuthorID
+		if aid.IsZero() {
+			continue
+		}
+		if u, ok := seen[aid]; ok {
+			posts[i].Author = u
+			continue
+		}
+		if u, err := s.auth.Users.FindByID(ctx, aid); err == nil {
+			seen[aid] = u
+			posts[i].Author = u
+		}
+	}
 }
 func (s *Server) adminListPosts(c *fiber.Ctx) error {
 	page, _ := strconv.Atoi(c.Query("page", "1"))

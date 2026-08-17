@@ -44,6 +44,7 @@ export const api = {
   updateCategory: (id: string, input: Pick<Category, 'name' | 'slug' | 'description'>) => request<Category>(`/me/categories/${id}`, { method: 'PUT', body: JSON.stringify(input) }),
   createTag: (input: Pick<Tag, 'name' | 'slug'>) => request<Tag>('/me/tags', { method: 'POST', body: JSON.stringify(input) }),
   updateTag: (id: string, input: Pick<Tag, 'name' | 'slug'>) => request<Tag>(`/me/tags/${id}`, { method: 'PUT', body: JSON.stringify(input) }),
+  deleteTag: (id: string) => request<void>(`/me/tags/${id}`, { method: 'DELETE' }),
   myPosts: (query = '') => request<Page<Post>>(`/me/posts${query}`),
   myPost: (id: string) => request<Post>(`/me/posts/${id}`),
   createPost: (input: PostInput) => request<Post>('/me/posts', { method: 'POST', body: JSON.stringify(input) }),
