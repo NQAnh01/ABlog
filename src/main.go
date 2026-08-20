@@ -12,6 +12,7 @@ import (
 	"lumina/src/infrastructure/database/mongodb"
 	"lumina/src/infrastructure/seed"
 	"lumina/src/infrastructure/storage"
+	"net"
 	"os"
 	"os/signal"
 	"syscall"
@@ -34,7 +35,7 @@ func main() {
 		log.Fatalf("seed data: %v", err)
 	}
 	auth := user.Service{Users: repos.Users, Sessions: repos.Sessions, Secret: []byte(cfg.JWTSecret), AccessTTL: cfg.AccessTTL, RefreshTTL: cfg.RefreshTTL}
-	posts := post.Service{Repo: repos.Posts}
+	posts := post.Service{Repo: repos.Posts, Versions: repos.Versions}
 	comments := comment.Service{Comments: repos.Comments, Posts: repos.Posts}
 	taxonomies := taxonomy.Service{Repo: repos.Taxonomy}
 	var objectStorage storage.Storage = storage.Local{Root: cfg.StoragePath, BaseURL: "/uploads"}
@@ -46,12 +47,16 @@ func main() {
 		objectStorage = cloudinaryStorage
 	}
 	server := api.New(cfg, auth, posts, comments, taxonomies, objectStorage)
+	listener, err := net.Listen("tcp4", ":"+cfg.Port)
+	if err != nil {
+		log.Fatalf("listen on :%s: %v", cfg.Port, err)
+	}
+	log.Printf("Lumina listening on :%s", cfg.Port)
 	go func() {
-		if err := server.App.Listen(":" + cfg.Port); err != nil {
+		if err := server.App.Listener(listener); err != nil {
 			log.Printf("server stopped: %v", err)
 		}
 	}()
-	log.Printf("Lumina listening on :%s", cfg.Port)
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	<-stop

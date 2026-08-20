@@ -73,6 +73,7 @@ func (s *Server) routes() {
 	mine.Post("/avatar", s.uploadAvatar)
 	mine.Get("/posts", s.myListPosts)
 	mine.Get("/posts/:id", s.myGetPost)
+	mine.Get("/posts/:id/versions", s.myPostVersions)
 	mine.Post("/posts", s.createPost)
 	mine.Put("/posts/:id", s.myUpdatePost)
 	mine.Delete("/posts/:id", s.myDeletePost)
@@ -96,6 +97,7 @@ func (s *Server) routes() {
 	admin.Put("/tags/:id", s.saveTag)
 	admin.Delete("/tags/:id", s.deleteTag)
 	admin.Get("/comments", s.adminComments)
+	admin.Get("/dashboard", s.adminDashboard)
 	admin.Put("/comments/:id/status", s.commentStatus)
 	admin.Delete("/comments/:id", s.adminDeleteComment)
 	// Serve Vite's fingerprinted JavaScript, CSS and other public assets before
@@ -165,7 +167,11 @@ func (s *Server) me(c *fiber.Ctx) error { return success(c, 200, c.Locals("user"
 func (s *Server) listPosts(c *fiber.Ctx) error {
 	page, _ := strconv.Atoi(c.Query("page", "1"))
 	limit, _ := strconv.Atoi(c.Query("limit", "20"))
-	items, total, e := s.posts.List(c.UserContext(), repository.PostFilter{Status: "public", Search: c.Query("q"), Category: c.Query("category"), Tag: c.Query("tag"), Page: page, Limit: limit})
+	filter, e := postFilter(c, "public", page, limit)
+	if e != nil {
+		return e
+	}
+	items, total, e := s.posts.List(c.UserContext(), filter)
 	if e != nil {
 		return e
 	}
@@ -206,7 +212,11 @@ func (s *Server) adminListPosts(c *fiber.Ctx) error {
 	if status != "" && status != "private" && status != "public" {
 		return fiber.NewError(422, "invalid post status")
 	}
-	items, total, err := s.posts.List(c.UserContext(), repository.PostFilter{Status: status, Search: c.Query("q"), Page: page, Limit: limit})
+	filter, err := postFilter(c, status, page, limit)
+	if err != nil {
+		return err
+	}
+	items, total, err := s.posts.List(c.UserContext(), filter)
 	if err != nil {
 		return err
 	}
@@ -287,7 +297,10 @@ func (s *Server) myListPosts(c *fiber.Ctx) error {
 	if status != "" && status != "private" && status != "public" {
 		return fiber.NewError(422, "invalid post status")
 	}
-	filter := repository.PostFilter{Status: status, Search: c.Query("q"), Page: page, Limit: limit}
+	filter, err := postFilter(c, status, page, limit)
+	if err != nil {
+		return err
+	}
 	if c.Locals("role") != "admin" {
 		filter.AuthorID = c.Locals("user_id").(primitive.ObjectID)
 	}
@@ -296,6 +309,24 @@ func (s *Server) myListPosts(c *fiber.Ctx) error {
 		return err
 	}
 	return success(c, 200, fiber.Map{"items": items, "page": page, "limit": limit, "total": total})
+}
+func postFilter(c *fiber.Ctx, status string, page, limit int) (repository.PostFilter, error) {
+	filter := repository.PostFilter{Status: status, Search: c.Query("q"), Category: c.Query("category"), Tag: c.Query("tag"), Page: page, Limit: limit}
+	if raw := c.Query("from"); raw != "" {
+		value, err := time.Parse("2006-01-02", raw)
+		if err != nil {
+			return filter, fiber.NewError(422, "invalid start date")
+		}
+		filter.DateFrom = value.UTC()
+	}
+	if raw := c.Query("to"); raw != "" {
+		value, err := time.Parse("2006-01-02", raw)
+		if err != nil {
+			return filter, fiber.NewError(422, "invalid end date")
+		}
+		filter.DateTo = value.UTC().Add(24*time.Hour - time.Nanosecond)
+	}
+	return filter, nil
 }
 func (s *Server) canManagePost(c *fiber.Ctx, p *model.Post) bool {
 	return c.Locals("role") == "admin" || p.AuthorID == c.Locals("user_id").(primitive.ObjectID)
@@ -313,6 +344,24 @@ func (s *Server) myGetPost(c *fiber.Ctx) error {
 		return fiber.ErrForbidden
 	}
 	return success(c, 200, p)
+}
+func (s *Server) myPostVersions(c *fiber.Ctx) error {
+	id, err := primitive.ObjectIDFromHex(c.Params("id"))
+	if err != nil {
+		return bad("INVALID_ID", "Invalid identifier")
+	}
+	p, err := s.posts.GetAdmin(c.UserContext(), id)
+	if err != nil {
+		return fiber.ErrNotFound
+	}
+	if !s.canManagePost(c, p) {
+		return fiber.ErrForbidden
+	}
+	versions, err := s.posts.ListVersions(c.UserContext(), id)
+	if err != nil {
+		return err
+	}
+	return success(c, 200, versions)
 }
 func (s *Server) myUpdatePost(c *fiber.Ctx) error {
 	id, err := primitive.ObjectIDFromHex(c.Params("id"))
@@ -521,6 +570,34 @@ func (s *Server) adminComments(c *fiber.Ctx) error {
 		return e
 	}
 	return success(c, 200, v)
+}
+func (s *Server) adminDashboard(c *fiber.Ctx) error {
+	ctx := c.UserContext()
+	recent, total, err := s.posts.List(ctx, repository.PostFilter{Page: 1, Limit: 5})
+	if err != nil {
+		return err
+	}
+	_, published, err := s.posts.List(ctx, repository.PostFilter{Status: "public", Page: 1, Limit: 1})
+	if err != nil {
+		return err
+	}
+	_, private, err := s.posts.List(ctx, repository.PostFilter{Status: "private", Page: 1, Limit: 1})
+	if err != nil {
+		return err
+	}
+	comments, err := s.comments.Comments.List(ctx)
+	if err != nil {
+		return err
+	}
+	categories, err := s.taxonomy.Categories(ctx)
+	if err != nil {
+		return err
+	}
+	tags, err := s.taxonomy.Tags(ctx)
+	if err != nil {
+		return err
+	}
+	return success(c, 200, fiber.Map{"posts": total, "published": published, "private": private, "comments": len(comments), "categories": len(categories), "tags": len(tags), "recent_posts": recent})
 }
 func (s *Server) commentStatus(c *fiber.Ctx) error {
 	id, e := primitive.ObjectIDFromHex(c.Params("id"))

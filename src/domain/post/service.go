@@ -9,9 +9,13 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
-type Service struct{ Repo repository.PostRepository }
+type Service struct {
+	Repo     repository.PostRepository
+	Versions repository.PostVersionRepository
+}
 
 func (s Service) List(ctx context.Context, f repository.PostFilter) ([]model.Post, int64, error) {
 	return s.Repo.List(ctx, f)
@@ -50,10 +54,10 @@ func normalize(p *model.Post) error {
 	if p.Slug == "" {
 		p.Slug = slug(p.Title)
 	}
-	if len(p.Title) < 3 || len(p.Title) > 180 || len(p.Content) < 1 {
+	if utf8.RuneCountInString(p.Title) < 3 || utf8.RuneCountInString(p.Title) > 180 || utf8.RuneCountInString(p.Content) < 1 {
 		return errors.New("title and content are required")
 	}
-	if len(p.Excerpt) > 320 {
+	if utf8.RuneCountInString(p.Excerpt) > 320 {
 		return errors.New("excerpt must be 320 characters or fewer")
 	}
 	if p.Status != "private" && p.Status != "public" {
@@ -68,6 +72,11 @@ func (s Service) Update(ctx context.Context, id primitive.ObjectID, input *model
 	}
 	if err := normalize(input); err != nil {
 		return err
+	}
+	if s.Versions != nil {
+		if err := s.Versions.Create(ctx, id, p); err != nil {
+			return err
+		}
 	}
 	p.Title = input.Title
 	p.Slug = input.Slug
@@ -85,6 +94,13 @@ func (s Service) Update(ctx context.Context, id primitive.ObjectID, input *model
 		p.PublishedAt = nil
 	}
 	return s.Repo.Update(ctx, p)
+}
+
+func (s Service) ListVersions(ctx context.Context, id primitive.ObjectID) ([]model.PostVersion, error) {
+	if s.Versions == nil {
+		return []model.PostVersion{}, nil
+	}
+	return s.Versions.List(ctx, id)
 }
 
 var nonSlug = regexp.MustCompile(`[^a-z0-9]+`)

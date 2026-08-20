@@ -4,6 +4,7 @@ import (
 	"context"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"lumina/src/domain/model"
+	"time"
 )
 
 type UserRepository interface {
@@ -18,6 +19,11 @@ type PostFilter struct {
 	Status, Search, Category, Tag string
 	Page, Limit                   int
 	AuthorID                      primitive.ObjectID
+	DateFrom, DateTo              time.Time
+}
+type PostVersionRepository interface {
+	Create(context.Context, primitive.ObjectID, *model.Post) error
+	List(context.Context, primitive.ObjectID) ([]model.PostVersion, error)
 }
 type PostRepository interface {
 	List(context.Context, PostFilter) ([]model.Post, int64, error)

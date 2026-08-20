@@ -12,3 +12,5 @@ export type PostInput = Pick<Post, 'title' | 'slug' | 'excerpt' | 'content' | 's
 }
 export type Comment = { id: string; content: string; status: string; user?: User; created_at: string }
 export type Page<T> = { items: T[]; page: number; limit: number; total: number }
+export type PostVersion = { id: string; post_id: string; number: number; snapshot: Post; created_at: string }
+export type Dashboard = { posts: number; published: number; private: number; comments: number; categories: number; tags: number; recent_posts: Post[] }

@@ -1,6 +1,7 @@
-import type { Category, Comment, Media, Page, Post, PostInput, Tag, User } from '../types'
+import type { Category, Comment, Dashboard, Media, Page, Post, PostInput, PostVersion, Tag, User } from '../types'
 
-const API = '/api'
+const API_ORIGIN = import.meta.env.VITE_API_ORIGIN ?? (import.meta.env.DEV ? 'http://localhost:8088' : '')
+const API = `${API_ORIGIN}/api`
 let accessToken = ''
 
 type Envelope<T> = { data: T; message: string }
@@ -47,8 +48,10 @@ export const api = {
   deleteTag: (id: string) => request<void>(`/me/tags/${id}`, { method: 'DELETE' }),
   myPosts: (query = '') => request<Page<Post>>(`/me/posts${query}`),
   myPost: (id: string) => request<Post>(`/me/posts/${id}`),
+  postVersions: (id: string) => request<PostVersion[]>(`/me/posts/${id}/versions`),
   createPost: (input: PostInput) => request<Post>('/me/posts', { method: 'POST', body: JSON.stringify(input) }),
   updatePost: (id: string, input: PostInput) => request<Post>(`/me/posts/${id}`, { method: 'PUT', body: JSON.stringify(input) }),
   deletePost: (id: string) => request<void>(`/me/posts/${id}`, { method: 'DELETE' }),
   uploadImage: (file: File) => { const form = new FormData(); form.append('file', file); return request<Media>('/me/uploads', { method: 'POST', body: form }) },
+  dashboard: () => request<Dashboard>('/admin/dashboard'),
 }

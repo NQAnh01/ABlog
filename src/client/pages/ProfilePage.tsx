@@ -4,8 +4,10 @@ import { EmptyState, Layout, Loading, Pagination } from '../components/ui'
 import { useAuth } from '../hooks/useAuth'
 import { api } from '../services/api'
 import type { Post } from '../types'
+import { useToast } from '../hooks/useToast'
 
 export function ProfilePage() {
+  const toast = useToast()
   const navigate = useNavigate()
   const { user, loading: authLoading } = useAuth()
   const [posts, setPosts] = useState<Post[]>([])
@@ -27,6 +29,7 @@ export function ProfilePage() {
     try {
       const saved = await api.updatePost(post.id, { title: post.title, slug: post.slug, excerpt: post.excerpt ?? '', content: post.content, status, thumbnail: post.thumbnail, category_ids: post.category_ids ?? [], tag_ids: post.tag_ids ?? [] })
       setPosts(current => current.map(item => item.id === saved.id ? saved : item))
+      toast(`Story is now ${saved.status}.`)
     } catch (err) { setError(err instanceof Error ? err.message : 'Unable to change visibility') }
     finally { setChangingStatus('') }
   }

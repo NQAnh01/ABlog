@@ -14,6 +14,7 @@ import (
 type Repositories struct {
 	Users    *Users
 	Posts    *Posts
+	Versions *PostVersions
 	Comments *Comments
 	Sessions *Sessions
 	Taxonomy *Taxonomy
@@ -29,14 +30,14 @@ func New(ctx context.Context, uri, name string) (*mongo.Client, *Repositories, e
 		return nil, nil, e
 	}
 	db := c.Database(name)
-	r := &Repositories{Users: &Users{db.Collection("users")}, Posts: &Posts{db.Collection("posts")}, Comments: &Comments{db.Collection("comments")}, Sessions: &Sessions{db.Collection("refresh_sessions")}, Taxonomy: &Taxonomy{categories: db.Collection("categories"), tags: db.Collection("tags")}, DB: db}
+	r := &Repositories{Users: &Users{db.Collection("users")}, Posts: &Posts{db.Collection("posts")}, Versions: &PostVersions{db.Collection("post_versions")}, Comments: &Comments{db.Collection("comments")}, Sessions: &Sessions{db.Collection("refresh_sessions")}, Taxonomy: &Taxonomy{categories: db.Collection("categories"), tags: db.Collection("tags")}, DB: db}
 	if e = r.indexes(ctx); e != nil {
 		return nil, nil, e
 	}
 	return c, r, nil
 }
 func (r *Repositories) indexes(ctx context.Context) error {
-	spec := map[string][]mongo.IndexModel{"users": {{Keys: bson.D{{Key: "email", Value: 1}}, Options: options.Index().SetUnique(true)}}, "posts": {{Keys: bson.D{{Key: "slug", Value: 1}}, Options: options.Index().SetUnique(true)}, {Keys: bson.D{{Key: "status", Value: 1}, {Key: "published_at", Value: -1}}}, {Keys: bson.D{{Key: "author_id", Value: 1}}}}, "comments": {{Keys: bson.D{{Key: "post_id", Value: 1}, {Key: "created_at", Value: 1}}}}, "categories": {{Keys: bson.D{{Key: "slug", Value: 1}}, Options: options.Index().SetUnique(true)}}, "tags": {{Keys: bson.D{{Key: "slug", Value: 1}}, Options: options.Index().SetUnique(true)}}, "refresh_sessions": {{Keys: bson.D{{Key: "token_hash", Value: 1}}, Options: options.Index().SetUnique(true)}, {Keys: bson.D{{Key: "expires_at", Value: 1}}, Options: options.Index().SetExpireAfterSeconds(0)}}}
+	spec := map[string][]mongo.IndexModel{"users": {{Keys: bson.D{{Key: "email", Value: 1}}, Options: options.Index().SetUnique(true)}}, "posts": {{Keys: bson.D{{Key: "slug", Value: 1}}, Options: options.Index().SetUnique(true)}, {Keys: bson.D{{Key: "status", Value: 1}, {Key: "published_at", Value: -1}}}, {Keys: bson.D{{Key: "author_id", Value: 1}}}}, "post_versions": {{Keys: bson.D{{Key: "post_id", Value: 1}, {Key: "number", Value: -1}}, Options: options.Index().SetUnique(true)}}, "comments": {{Keys: bson.D{{Key: "post_id", Value: 1}, {Key: "created_at", Value: 1}}}}, "categories": {{Keys: bson.D{{Key: "slug", Value: 1}}, Options: options.Index().SetUnique(true)}}, "tags": {{Keys: bson.D{{Key: "slug", Value: 1}}, Options: options.Index().SetUnique(true)}}, "refresh_sessions": {{Keys: bson.D{{Key: "token_hash", Value: 1}}, Options: options.Index().SetUnique(true)}, {Keys: bson.D{{Key: "expires_at", Value: 1}}, Options: options.Index().SetExpireAfterSeconds(0)}}}
 	for n, idx := range spec {
 		if _, e := r.DB.Collection(n).Indexes().CreateMany(ctx, idx); e != nil {
 			return e
@@ -94,6 +95,26 @@ func (r *Posts) List(ctx context.Context, f repository.PostFilter) ([]model.Post
 	}
 	if f.Search != "" {
 		q["$or"] = []bson.M{{"title": bson.M{"$regex": f.Search, "$options": "i"}}, {"excerpt": bson.M{"$regex": f.Search, "$options": "i"}}}
+	}
+	if f.Tag != "" {
+		if id, err := primitive.ObjectIDFromHex(f.Tag); err == nil {
+			q["tag_ids"] = id
+		}
+	}
+	if f.Category != "" {
+		if id, err := primitive.ObjectIDFromHex(f.Category); err == nil {
+			q["category_ids"] = id
+		}
+	}
+	if !f.DateFrom.IsZero() || !f.DateTo.IsZero() {
+		rangeQuery := bson.M{}
+		if !f.DateFrom.IsZero() {
+			rangeQuery["$gte"] = f.DateFrom
+		}
+		if !f.DateTo.IsZero() {
+			rangeQuery["$lte"] = f.DateTo
+		}
+		q["published_at"] = rangeQuery
 	}
 	if f.Page < 1 {
 		f.Page = 1
@@ -153,6 +174,28 @@ func (r *Posts) Update(ctx context.Context, v *model.Post) error {
 func (r *Posts) Delete(ctx context.Context, id primitive.ObjectID) error {
 	_, e := r.c.DeleteOne(ctx, bson.M{"_id": id})
 	return e
+}
+
+type PostVersions struct{ c *mongo.Collection }
+
+func (r *PostVersions) Create(ctx context.Context, postID primitive.ObjectID, snapshot *model.Post) error {
+	count, err := r.c.CountDocuments(ctx, bson.M{"post_id": postID})
+	if err != nil {
+		return err
+	}
+	version := model.PostVersion{ID: primitive.NewObjectID(), PostID: postID, Number: int(count) + 1, Snapshot: *snapshot, CreatedAt: time.Now().UTC()}
+	_, err = r.c.InsertOne(ctx, version)
+	return err
+}
+func (r *PostVersions) List(ctx context.Context, postID primitive.ObjectID) ([]model.PostVersion, error) {
+	cur, err := r.c.Find(ctx, bson.M{"post_id": postID}, options.Find().SetSort(bson.D{{Key: "number", Value: -1}}))
+	if err != nil {
+		return nil, err
+	}
+	defer cur.Close(ctx)
+	var versions []model.PostVersion
+	err = cur.All(ctx, &versions)
+	return versions, err
 }
 
 type Comments struct{ c *mongo.Collection }

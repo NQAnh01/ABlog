@@ -2,6 +2,7 @@ import { isValidElement, useEffect, useRef, useState, type ChangeEvent, type Rea
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { api } from '../services/api'
+import { useToast } from '../hooks/useToast'
 
 type Props = { value: string; onChange(value: string): void; onError(message: string): void }
 type Action = { label: string; title: string; before: string; after?: string; placeholder?: string; line?: boolean }
@@ -102,6 +103,7 @@ export function PreviewableImage({ src, alt, className }: { src: string; alt: st
 }
 
 export function MarkdownEditor({ value, onChange, onError }: Props) {
+  const toast = useToast()
   const textarea = useRef<HTMLTextAreaElement>(null)
   const imageInput = useRef<HTMLInputElement>(null)
   const [mode, setMode] = useState<'write' | 'preview'>('write')
@@ -153,6 +155,7 @@ export function MarkdownEditor({ value, onChange, onError }: Props) {
       const alt = file.name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ')
       const markdown = `\n![${alt}](${media.url})\n`
       onChange(value.slice(0, position) + markdown + value.slice(position))
+      toast('Image uploaded and inserted successfully.')
     } catch (error) { onError(error instanceof Error ? error.message : 'Unable to upload inline image') }
     finally { setUploading(false); event.target.value = '' }
   }

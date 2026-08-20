@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
 import { useAuth } from './useAuth'
+import { useToast } from './useToast'
 
 type BookmarkValue = {
   bookmarks: string[]
@@ -24,6 +25,7 @@ function saveBookmarks(userId: string, ids: string[]) {
 
 export function BookmarkProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth()
+  const toast = useToast()
   const [bookmarks, setBookmarks] = useState<string[]>([])
 
   useEffect(() => {
@@ -37,7 +39,7 @@ export function BookmarkProvider({ children }: { children: ReactNode }) {
   const isBookmarked = useCallback((postId: string) => bookmarks.includes(postId), [bookmarks])
 
   const toggleBookmark = useCallback((postId: string): 'added' | 'removed' | 'login_required' => {
-    if (!user) return 'login_required'
+    if (!user) { toast('Sign in to save stories.', 'info'); return 'login_required' }
     setBookmarks(current => {
       const next = current.includes(postId)
         ? current.filter(id => id !== postId)
@@ -45,8 +47,10 @@ export function BookmarkProvider({ children }: { children: ReactNode }) {
       saveBookmarks(user.id, next)
       return next
     })
-    return bookmarks.includes(postId) ? 'removed' : 'added'
-  }, [user, bookmarks])
+    const result = bookmarks.includes(postId) ? 'removed' : 'added'
+    toast(result === 'added' ? 'Story added to your reading list.' : 'Story removed from your reading list.', 'info')
+    return result
+  }, [user, bookmarks, toast])
 
   return <BookmarkContext.Provider value={{ bookmarks, isBookmarked, toggleBookmark }}>{children}</BookmarkContext.Provider>
 }

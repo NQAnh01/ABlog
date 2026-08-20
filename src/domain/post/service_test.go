@@ -7,7 +7,19 @@ import (
 	"lumina/src/domain/model"
 	"lumina/src/domain/repository"
 	"testing"
+	"time"
 )
+
+type versionsFake struct{ items []model.PostVersion }
+
+func (f *versionsFake) Create(_ context.Context, id primitive.ObjectID, post *model.Post) error {
+	snapshot := *post
+	f.items = append(f.items, model.PostVersion{PostID: id, Number: len(f.items) + 1, Snapshot: snapshot, CreatedAt: time.Now()})
+	return nil
+}
+func (f *versionsFake) List(_ context.Context, id primitive.ObjectID) ([]model.PostVersion, error) {
+	return f.items, nil
+}
 
 type repoFake struct {
 	items map[primitive.ObjectID]*model.Post
@@ -90,5 +102,33 @@ func TestPostValidationAndVisibilityTransitions(t *testing.T) {
 	}
 	if r.items[p.ID].PublishedAt != nil {
 		t.Fatal("making a post private must clear the public timestamp")
+	}
+}
+
+func TestUpdateStoresPreviousVersion(t *testing.T) {
+	r := &repoFake{items: map[primitive.ObjectID]*model.Post{}}
+	versions := &versionsFake{}
+	s := Service{Repo: r, Versions: versions}
+	p := &model.Post{Title: "Original title", Content: "Original body", Status: "private"}
+	if err := s.Create(context.Background(), p); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Update(context.Background(), p.ID, &model.Post{Title: "Updated title", Content: "Updated body", Status: "private"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(versions.items) != 1 {
+		t.Fatalf("expected one version, got %d", len(versions.items))
+	}
+	if versions.items[0].Snapshot.Title != "Original title" || versions.items[0].Snapshot.Content != "Original body" {
+		t.Fatal("version did not preserve the previous post")
+	}
+}
+
+func TestVietnameseExcerptUsesCharacterCount(t *testing.T) {
+	r := &repoFake{items: map[primitive.ObjectID]*model.Post{}}
+	s := Service{Repo: r}
+	excerpt := "Microservices không chỉ là một xu hướng công nghệ — đó là một triết lý thiết kế thay đổi cách chúng ta xây dựng, vận hành và mở rộng phần mềm. Bài viết đi sâu vào lý do ra đời, các nguyên tắc cốt lõi, những cạm bẫy thường gặp, và lộ trình thực tế để chuyển đổi từ một hệ thống nguyên khối sang kiến trúc phân tán."
+	if err := s.Create(context.Background(), &model.Post{Title: "Kiến trúc Microservices", Content: "Nội dung", Excerpt: excerpt, Status: "private"}); err != nil {
+		t.Fatalf("valid Vietnamese excerpt was rejected: %v", err)
 	}
 }
