@@ -20,6 +20,7 @@ import (
 	store "lumina/src/infrastructure/storage"
 	"mime/multipart"
 	"net/http"
+	"net/smtp"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -27,17 +28,21 @@ import (
 )
 
 type Server struct {
-	App      *fiber.App
-	auth     user.Service
-	posts    post.Service
-	comments comment.Service
-	taxonomy taxonomy.Service
-	storage  store.Storage
-	cfg      config.Config
+	App       *fiber.App
+	auth      user.Service
+	posts     post.Service
+	comments  comment.Service
+	taxonomy  taxonomy.Service
+	storage   store.Storage
+	bookmarks repository.BookmarkRepository
+	cfg       config.Config
 }
 
-func New(cfg config.Config, a user.Service, p post.Service, c comment.Service, t taxonomy.Service, st store.Storage) *Server {
+func New(cfg config.Config, a user.Service, p post.Service, c comment.Service, t taxonomy.Service, st store.Storage, bookmarks ...repository.BookmarkRepository) *Server {
 	s := &Server{auth: a, posts: p, comments: c, taxonomy: t, storage: st, cfg: cfg}
+	if len(bookmarks) > 0 {
+		s.bookmarks = bookmarks[0]
+	}
 	s.App = fiber.New(fiber.Config{
 		ErrorHandler:   s.errors,
 		BodyLimit:      8 * 1024 * 1024,
@@ -51,12 +56,19 @@ func (s *Server) routes() {
 	a.Use(recover.New())
 	a.Use(cors.New(cors.Config{AllowOrigins: s.cfg.ClientOrigin, AllowCredentials: true, AllowHeaders: "Origin, Content-Type, Accept, Authorization"}))
 	a.Static("/uploads", s.cfg.StoragePath)
+	a.Get("/robots.txt", func(c *fiber.Ctx) error {
+		c.Type("text/plain")
+		return c.SendString("User-agent: *\nAllow: /\nDisallow: /admin/\nDisallow: /profile/\nSitemap: " + strings.TrimSuffix(s.cfg.ClientOrigin, "/") + "/sitemap.xml\n")
+	})
+	a.Get("/sitemap.xml", s.sitemap)
 	api := a.Group("/api")
 	auth := api.Group("/auth", limiter.New(limiter.Config{Max: 20, Expiration: time.Minute}))
 	auth.Post("/register", s.register)
 	auth.Post("/login", s.login)
 	auth.Post("/refresh", s.refresh)
 	auth.Post("/logout", s.logout)
+	auth.Post("/forgot-password", s.forgotPassword)
+	auth.Post("/reset-password", s.resetPassword)
 	auth.Get("/me", s.requireAuth, s.me)
 	api.Get("/posts", s.listPosts)
 	api.Get("/posts/:slug", s.getPost)
@@ -83,6 +95,9 @@ func (s *Server) routes() {
 	mine.Post("/tags", s.saveTag)
 	mine.Put("/tags/:id", s.saveTag)
 	mine.Delete("/tags/:id", s.deleteTag)
+	mine.Get("/bookmarks", s.listBookmarks)
+	mine.Put("/bookmarks/:postId", s.addBookmark)
+	mine.Delete("/bookmarks/:postId", s.removeBookmark)
 	admin := api.Group("/admin", s.requireAuth, s.requireAdmin)
 	admin.Get("/posts", s.adminListPosts)
 	admin.Get("/posts/:id", s.adminGetPost)
@@ -109,6 +124,119 @@ func (s *Server) routes() {
 		}
 		return c.SendFile("dist/index.html")
 	})
+}
+func (s *Server) sitemap(c *fiber.Ctx) error {
+	posts, _, err := s.posts.List(c.UserContext(), repository.PostFilter{Status: "public", Page: 1, Limit: 100})
+	if err != nil {
+		return err
+	}
+	base := strings.TrimSuffix(s.cfg.ClientOrigin, "/")
+	var body strings.Builder
+	body.WriteString(`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">`)
+	for _, path := range []string{"/", "/blog", "/about", "/privacy"} {
+		body.WriteString("<url><loc>" + base + path + "</loc></url>")
+	}
+	for _, postValue := range posts {
+		body.WriteString("<url><loc>" + base + "/blog/" + postValue.Slug + "</loc>")
+		if !postValue.UpdatedAt.IsZero() {
+			body.WriteString("<lastmod>" + postValue.UpdatedAt.Format("2006-01-02") + "</lastmod>")
+		}
+		body.WriteString("</url>")
+	}
+	body.WriteString("</urlset>")
+	c.Type("application/xml")
+	return c.SendString(body.String())
+}
+
+func (s *Server) forgotPassword(c *fiber.Ctx) error {
+	var input struct {
+		Email string `json:"email"`
+	}
+	if err := c.BodyParser(&input); err != nil {
+		return bad("INVALID_REQUEST", "Invalid request")
+	}
+	token, err := s.auth.RequestPasswordReset(c.UserContext(), input.Email)
+	if err != nil {
+		return err
+	}
+	if token != "" {
+		resetURL := strings.TrimSuffix(s.cfg.ClientOrigin, "/") + "/reset-password?token=" + token
+		if s.cfg.SMTPHost != "" && s.cfg.SMTPFrom != "" {
+			auth := smtp.PlainAuth("", s.cfg.SMTPUsername, s.cfg.SMTPPassword, s.cfg.SMTPHost)
+			message := []byte("To: " + input.Email + "\r\nSubject: Reset your Lumina password\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\nOpen this one-time link within one hour:\r\n" + resetURL)
+			if err := smtp.SendMail(s.cfg.SMTPHost+":"+s.cfg.SMTPPort, auth, s.cfg.SMTPFrom, []string{input.Email}, message); err != nil {
+				log.Printf("send password reset email: %v", err)
+			}
+		} else if s.cfg.Env != "production" {
+			log.Printf("development password reset URL: %s", resetURL)
+		} else {
+			log.Printf("password reset email not sent: SMTP is not configured")
+		}
+	}
+	return success(c, 200, fiber.Map{"message": "If that account exists, reset instructions have been sent."})
+}
+func (s *Server) resetPassword(c *fiber.Ctx) error {
+	var input struct {
+		Token           string `json:"token"`
+		Password        string `json:"password"`
+		ConfirmPassword string `json:"confirm_password"`
+	}
+	if err := c.BodyParser(&input); err != nil {
+		return bad("INVALID_REQUEST", "Invalid request")
+	}
+	if err := s.auth.ResetPassword(c.UserContext(), input.Token, input.Password, input.ConfirmPassword); err != nil {
+		return fiber.NewError(422, err.Error())
+	}
+	return c.SendStatus(204)
+}
+func (s *Server) listBookmarks(c *fiber.Ctx) error {
+	if s.bookmarks == nil {
+		return fiber.NewError(503, "bookmarks unavailable")
+	}
+	ids, err := s.bookmarks.ListPostIDs(c.UserContext(), c.Locals("user_id").(primitive.ObjectID))
+	if err != nil {
+		return err
+	}
+	posts := make([]model.Post, 0, len(ids))
+	for _, id := range ids {
+		postValue, err := s.posts.Repo.FindByID(c.UserContext(), id)
+		if err == nil && (postValue.Status == "public" || postValue.Status == "published") {
+			posts = append(posts, *postValue)
+		}
+	}
+	s.populateAuthors(c.UserContext(), posts)
+	return success(c, 200, fiber.Map{"post_ids": ids, "posts": posts})
+}
+func (s *Server) addBookmark(c *fiber.Ctx) error {
+	if s.bookmarks == nil {
+		return fiber.NewError(503, "bookmarks unavailable")
+	}
+	postID, err := primitive.ObjectIDFromHex(c.Params("postId"))
+	if err != nil {
+		return bad("INVALID_ID", "Invalid identifier")
+	}
+	postValue, err := s.posts.Repo.FindByID(c.UserContext(), postID)
+	if err != nil || (postValue.Status != "public" && postValue.Status != "published") {
+		return fiber.ErrNotFound
+	}
+	err = s.bookmarks.Create(c.UserContext(), &model.Bookmark{UserID: c.Locals("user_id").(primitive.ObjectID), PostID: postID, CreatedAt: time.Now().UTC()})
+	if err != nil {
+		return err
+	}
+	return c.SendStatus(204)
+}
+func (s *Server) removeBookmark(c *fiber.Ctx) error {
+	if s.bookmarks == nil {
+		return fiber.NewError(503, "bookmarks unavailable")
+	}
+	postID, err := primitive.ObjectIDFromHex(c.Params("postId"))
+	if err != nil {
+		return bad("INVALID_ID", "Invalid identifier")
+	}
+	if err = s.bookmarks.Delete(c.UserContext(), c.Locals("user_id").(primitive.ObjectID), postID); err != nil {
+		return err
+	}
+	return c.SendStatus(204)
 }
 
 type credentials struct {

@@ -34,7 +34,7 @@ func main() {
 	if err = seed.Run(ctx, cfg, repos); err != nil {
 		log.Fatalf("seed data: %v", err)
 	}
-	auth := user.Service{Users: repos.Users, Sessions: repos.Sessions, Secret: []byte(cfg.JWTSecret), AccessTTL: cfg.AccessTTL, RefreshTTL: cfg.RefreshTTL}
+	auth := user.Service{Users: repos.Users, Sessions: repos.Sessions, PasswordResets: repos.PasswordResets, Secret: []byte(cfg.JWTSecret), AccessTTL: cfg.AccessTTL, RefreshTTL: cfg.RefreshTTL}
 	posts := post.Service{Repo: repos.Posts, Versions: repos.Versions}
 	comments := comment.Service{Comments: repos.Comments, Posts: repos.Posts}
 	taxonomies := taxonomy.Service{Repo: repos.Taxonomy}
@@ -46,7 +46,7 @@ func main() {
 		}
 		objectStorage = cloudinaryStorage
 	}
-	server := api.New(cfg, auth, posts, comments, taxonomies, objectStorage)
+	server := api.New(cfg, auth, posts, comments, taxonomies, objectStorage, repos.Bookmarks)
 	listener, err := net.Listen("tcp4", ":"+cfg.Port)
 	if err != nil {
 		log.Fatalf("listen on :%s: %v", cfg.Port, err)

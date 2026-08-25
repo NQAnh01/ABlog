@@ -13,4 +13,6 @@ import './avatar.css'
 import './markdown-view.css'
 import './theme.css'
 import './density.css'
+import './sprint-upgrades.css'
+import './global-polish.css'
 ReactDOM.createRoot(document.getElementById('root')!).render(<React.StrictMode><BrowserRouter><ToastProvider><AuthProvider><BookmarkProvider><App/></BookmarkProvider></AuthProvider></ToastProvider></BrowserRouter></React.StrictMode>)

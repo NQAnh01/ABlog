@@ -1,27 +1,15 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
 import { useAuth } from './useAuth'
 import { useToast } from './useToast'
+import { api } from '../services/api'
 
 type BookmarkValue = {
   bookmarks: string[]
   isBookmarked: (postId: string) => boolean
-  toggleBookmark: (postId: string) => 'added' | 'removed' | 'login_required'
+  toggleBookmark: (postId: string) => Promise<'added' | 'removed' | 'login_required'>
 }
 
 const BookmarkContext = createContext<BookmarkValue | null>(null)
-
-function storageKey(userId: string) { return `lumina-bookmarks-${userId}` }
-
-function loadBookmarks(userId: string): string[] {
-  try {
-    const raw = localStorage.getItem(storageKey(userId))
-    return raw ? JSON.parse(raw) : []
-  } catch { return [] }
-}
-
-function saveBookmarks(userId: string, ids: string[]) {
-  localStorage.setItem(storageKey(userId), JSON.stringify(ids))
-}
 
 export function BookmarkProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth()
@@ -29,27 +17,24 @@ export function BookmarkProvider({ children }: { children: ReactNode }) {
   const [bookmarks, setBookmarks] = useState<string[]>([])
 
   useEffect(() => {
-    if (user) {
-      setBookmarks(loadBookmarks(user.id))
-    } else {
-      setBookmarks([])
-    }
+    if (user) api.bookmarks().then(async value => {
+      const serverIds=value.post_ids??[]
+      try { const key=`lumina-bookmarks-${user.id}`;const legacy=JSON.parse(localStorage.getItem(key)??'[]') as string[];const missing=legacy.filter(id=>!serverIds.includes(id));await Promise.all(missing.map(id=>api.addBookmark(id)));if(missing.length)setBookmarks([...new Set([...serverIds,...missing])]);else setBookmarks(serverIds);localStorage.removeItem(key) } catch { setBookmarks(serverIds) }
+    }).catch(() => setBookmarks([]))
+    else setBookmarks([])
   }, [user])
 
   const isBookmarked = useCallback((postId: string) => bookmarks.includes(postId), [bookmarks])
 
-  const toggleBookmark = useCallback((postId: string): 'added' | 'removed' | 'login_required' => {
+  const toggleBookmark = useCallback(async (postId: string): Promise<'added' | 'removed' | 'login_required'> => {
     if (!user) { toast('Sign in to save stories.', 'info'); return 'login_required' }
-    setBookmarks(current => {
-      const next = current.includes(postId)
-        ? current.filter(id => id !== postId)
-        : [...current, postId]
-      saveBookmarks(user.id, next)
-      return next
-    })
     const result = bookmarks.includes(postId) ? 'removed' : 'added'
-    toast(result === 'added' ? 'Story added to your reading list.' : 'Story removed from your reading list.', 'info')
-    return result
+    try {
+      if (result === 'added') await api.addBookmark(postId); else await api.removeBookmark(postId)
+      setBookmarks(current => result === 'added' ? [...new Set([...current, postId])] : current.filter(id => id !== postId))
+      toast(result === 'added' ? 'Story added to your reading list.' : 'Story removed from your reading list.', 'info')
+      return result
+    } catch { toast('Unable to update your reading list.', 'error'); return result === 'added' ? 'removed' : 'added' }
   }, [user, bookmarks, toast])
 
   return <BookmarkContext.Provider value={{ bookmarks, isBookmarked, toggleBookmark }}>{children}</BookmarkContext.Provider>

@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
-import { LoginPage, RegisterPage } from './pages/AuthPages'
+import { ForgotPasswordPage, LoginPage, RegisterPage, ResetPasswordPage } from './pages/AuthPages'
 import { ArticlePage, BlogListPage, InfoPage, StoryPreviewPage } from './pages/BlogPages'
 import { ProfilePage } from './pages/ProfilePage'
 import { UserSettingsPage } from './pages/UserSettingsPage'
-import { AdminDashboardPage, AdminPostsPage, PlaceholderPage, PostEditorPage, PostVersionsPage } from './pages/AdminPages'
+import { AdminCommentsPage, AdminDashboardPage, AdminPostsPage, PostEditorPage, PostVersionsPage } from './pages/AdminPages'
+import { NotFoundPage } from './pages/NotFoundPage'
 import { SavedPage } from './pages/SavedPage'
 
 export default function App() {
@@ -37,6 +38,8 @@ export default function App() {
         <Route path="/socials" element={<InfoPage page="socials"/>}/>
         <Route path="/login" element={<LoginPage/>}/>
         <Route path="/register" element={<RegisterPage/>}/>
+        <Route path="/forgot-password" element={<ForgotPasswordPage/>}/>
+        <Route path="/reset-password" element={<ResetPasswordPage/>}/>
         <Route path="/profile" element={<ProfilePage/>}/>
         <Route path="/profile/settings" element={<UserSettingsPage/>}/>
         <Route path="/saved" element={<SavedPage/>}/>
@@ -46,8 +49,8 @@ export default function App() {
         <Route path="/admin/posts/create" element={<PostEditorPage/>}/>
         <Route path="/admin/posts/:id/edit" element={<PostEditorPage/>}/>
         <Route path="/admin/posts/:id/versions" element={<PostVersionsPage/>}/>
-        <Route path="/admin/comments" element={<PlaceholderPage title="Moderate comments"/>}/>
-        <Route path="*" element={<PlaceholderPage title="Page not found"/>}/>
+        <Route path="/admin/comments" element={<AdminCommentsPage/>}/>
+        <Route path="*" element={<NotFoundPage/>}/>
       </Routes>
     </div>
     <button className={`scroll-top${showScrollTop ? ' visible' : ''}`} type="button" aria-label="Scroll to top" title="Back to top" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>

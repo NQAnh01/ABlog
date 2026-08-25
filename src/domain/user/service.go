@@ -22,9 +22,50 @@ var ErrInvalidCredentials = errors.New("invalid email or password")
 type Service struct {
 	Users                 repository.UserRepository
 	Sessions              repository.SessionRepository
+	PasswordResets        repository.PasswordResetRepository
 	Secret                []byte
 	AccessTTL, RefreshTTL time.Duration
 }
+
+func (s Service) RequestPasswordReset(ctx context.Context, email string) (string, error) {
+	u, err := s.Users.FindByEmail(ctx, strings.ToLower(strings.TrimSpace(email)))
+	if err != nil {
+		return "", nil
+	}
+	raw := make([]byte, 32)
+	if _, err = rand.Read(raw); err != nil {
+		return "", err
+	}
+	token := base64.RawURLEncoding.EncodeToString(raw)
+	sum := sha256.Sum256([]byte(token))
+	_ = s.PasswordResets.DeleteByUser(ctx, u.ID)
+	err = s.PasswordResets.Create(ctx, &model.PasswordReset{UserID: u.ID, TokenHash: base64.RawURLEncoding.EncodeToString(sum[:]), ExpiresAt: time.Now().Add(time.Hour), CreatedAt: time.Now().UTC()})
+	return token, err
+}
+func (s Service) ResetPassword(ctx context.Context, token, next, confirm string) error {
+	if next != confirm {
+		return errors.New("password confirmation does not match")
+	}
+	if len(next) < 8 || len(next) > 128 {
+		return errors.New("password must be between 8 and 128 characters")
+	}
+	sum := sha256.Sum256([]byte(strings.TrimSpace(token)))
+	hash := base64.RawURLEncoding.EncodeToString(sum[:])
+	reset, err := s.PasswordResets.FindByHash(ctx, hash)
+	if err != nil || time.Now().After(reset.ExpiresAt) {
+		return errors.New("reset link is invalid or expired")
+	}
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte(next), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	if err = s.Users.UpdatePassword(ctx, reset.UserID, string(passwordHash)); err != nil {
+		return err
+	}
+	_ = s.PasswordResets.DeleteByHash(ctx, hash)
+	return s.Sessions.DeleteByUser(ctx, reset.UserID)
+}
+
 type Tokens struct {
 	Access, Refresh string
 	User            *model.User

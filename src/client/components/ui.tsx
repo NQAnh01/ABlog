@@ -29,6 +29,24 @@ export function Header({ dark, onToggleTheme }: { dark: boolean; onToggleTheme: 
     }
   }, [])
 
+  useEffect(() => {
+    const headerElement = document.querySelector<HTMLElement>('.site-header')
+    if (!headerElement) return
+    const header = headerElement
+    let frame = 0
+    function updateHeader() {
+      const currentY = window.scrollY
+      header.classList.toggle('header-scrolled', currentY > 24)
+      frame = 0
+    }
+    function onScroll() {
+      if (!frame) frame = window.requestAnimationFrame(updateHeader)
+    }
+    updateHeader()
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => { window.removeEventListener('scroll', onScroll); if (frame) window.cancelAnimationFrame(frame) }
+  }, [])
+
   async function signOut() {
     setAccountOpen(false)
     await logout()

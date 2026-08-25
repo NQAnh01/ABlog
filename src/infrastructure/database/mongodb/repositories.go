@@ -12,13 +12,15 @@ import (
 )
 
 type Repositories struct {
-	Users    *Users
-	Posts    *Posts
-	Versions *PostVersions
-	Comments *Comments
-	Sessions *Sessions
-	Taxonomy *Taxonomy
-	DB       *mongo.Database
+	Users          *Users
+	Posts          *Posts
+	Versions       *PostVersions
+	Comments       *Comments
+	Sessions       *Sessions
+	Taxonomy       *Taxonomy
+	Bookmarks      *Bookmarks
+	PasswordResets *PasswordResets
+	DB             *mongo.Database
 }
 
 func New(ctx context.Context, uri, name string) (*mongo.Client, *Repositories, error) {
@@ -30,14 +32,14 @@ func New(ctx context.Context, uri, name string) (*mongo.Client, *Repositories, e
 		return nil, nil, e
 	}
 	db := c.Database(name)
-	r := &Repositories{Users: &Users{db.Collection("users")}, Posts: &Posts{db.Collection("posts")}, Versions: &PostVersions{db.Collection("post_versions")}, Comments: &Comments{db.Collection("comments")}, Sessions: &Sessions{db.Collection("refresh_sessions")}, Taxonomy: &Taxonomy{categories: db.Collection("categories"), tags: db.Collection("tags")}, DB: db}
+	r := &Repositories{Users: &Users{db.Collection("users")}, Posts: &Posts{db.Collection("posts")}, Versions: &PostVersions{db.Collection("post_versions")}, Comments: &Comments{db.Collection("comments")}, Sessions: &Sessions{db.Collection("refresh_sessions")}, Taxonomy: &Taxonomy{categories: db.Collection("categories"), tags: db.Collection("tags")}, Bookmarks: &Bookmarks{db.Collection("bookmarks")}, PasswordResets: &PasswordResets{db.Collection("password_resets")}, DB: db}
 	if e = r.indexes(ctx); e != nil {
 		return nil, nil, e
 	}
 	return c, r, nil
 }
 func (r *Repositories) indexes(ctx context.Context) error {
-	spec := map[string][]mongo.IndexModel{"users": {{Keys: bson.D{{Key: "email", Value: 1}}, Options: options.Index().SetUnique(true)}}, "posts": {{Keys: bson.D{{Key: "slug", Value: 1}}, Options: options.Index().SetUnique(true)}, {Keys: bson.D{{Key: "status", Value: 1}, {Key: "published_at", Value: -1}}}, {Keys: bson.D{{Key: "author_id", Value: 1}}}}, "post_versions": {{Keys: bson.D{{Key: "post_id", Value: 1}, {Key: "number", Value: -1}}, Options: options.Index().SetUnique(true)}}, "comments": {{Keys: bson.D{{Key: "post_id", Value: 1}, {Key: "created_at", Value: 1}}}}, "categories": {{Keys: bson.D{{Key: "slug", Value: 1}}, Options: options.Index().SetUnique(true)}}, "tags": {{Keys: bson.D{{Key: "slug", Value: 1}}, Options: options.Index().SetUnique(true)}}, "refresh_sessions": {{Keys: bson.D{{Key: "token_hash", Value: 1}}, Options: options.Index().SetUnique(true)}, {Keys: bson.D{{Key: "expires_at", Value: 1}}, Options: options.Index().SetExpireAfterSeconds(0)}}}
+	spec := map[string][]mongo.IndexModel{"users": {{Keys: bson.D{{Key: "email", Value: 1}}, Options: options.Index().SetUnique(true)}}, "posts": {{Keys: bson.D{{Key: "slug", Value: 1}}, Options: options.Index().SetUnique(true)}, {Keys: bson.D{{Key: "status", Value: 1}, {Key: "published_at", Value: -1}}}, {Keys: bson.D{{Key: "author_id", Value: 1}}}}, "post_versions": {{Keys: bson.D{{Key: "post_id", Value: 1}, {Key: "number", Value: -1}}, Options: options.Index().SetUnique(true)}}, "comments": {{Keys: bson.D{{Key: "post_id", Value: 1}, {Key: "created_at", Value: 1}}}}, "categories": {{Keys: bson.D{{Key: "slug", Value: 1}}, Options: options.Index().SetUnique(true)}}, "tags": {{Keys: bson.D{{Key: "slug", Value: 1}}, Options: options.Index().SetUnique(true)}}, "refresh_sessions": {{Keys: bson.D{{Key: "token_hash", Value: 1}}, Options: options.Index().SetUnique(true)}, {Keys: bson.D{{Key: "expires_at", Value: 1}}, Options: options.Index().SetExpireAfterSeconds(0)}}, "bookmarks": {{Keys: bson.D{{Key: "user_id", Value: 1}, {Key: "post_id", Value: 1}}, Options: options.Index().SetUnique(true)}}, "password_resets": {{Keys: bson.D{{Key: "token_hash", Value: 1}}, Options: options.Index().SetUnique(true)}, {Keys: bson.D{{Key: "expires_at", Value: 1}}, Options: options.Index().SetExpireAfterSeconds(0)}}}
 	for n, idx := range spec {
 		if _, e := r.DB.Collection(n).Indexes().CreateMany(ctx, idx); e != nil {
 			return e
@@ -77,6 +79,20 @@ func (r *Users) UpdateAvatar(ctx context.Context, id primitive.ObjectID, avatar 
 }
 
 type Posts struct{ c *mongo.Collection }
+
+func (r *Posts) FindPublicByIDs(ctx context.Context, ids []primitive.ObjectID) ([]model.Post, error) {
+	if len(ids) == 0 {
+		return []model.Post{}, nil
+	}
+	cur, err := r.c.Find(ctx, bson.M{"_id": bson.M{"$in": ids}, "status": bson.M{"$in": []string{"public", "published"}}})
+	if err != nil {
+		return nil, err
+	}
+	defer cur.Close(ctx)
+	var posts []model.Post
+	err = cur.All(ctx, &posts)
+	return posts, err
+}
 
 func (r *Posts) List(ctx context.Context, f repository.PostFilter) ([]model.Post, int64, error) {
 	q := bson.M{}
@@ -258,6 +274,55 @@ func (r *Sessions) DeleteByHash(ctx context.Context, h string) error {
 func (r *Sessions) DeleteByUser(ctx context.Context, id primitive.ObjectID) error {
 	_, e := r.c.DeleteMany(ctx, bson.M{"user_id": id})
 	return e
+}
+
+type Bookmarks struct{ c *mongo.Collection }
+
+func (r *Bookmarks) ListPostIDs(ctx context.Context, userID primitive.ObjectID) ([]primitive.ObjectID, error) {
+	cur, err := r.c.Find(ctx, bson.M{"user_id": userID}, options.Find().SetSort(bson.D{{Key: "created_at", Value: -1}}))
+	if err != nil {
+		return nil, err
+	}
+	defer cur.Close(ctx)
+	var rows []model.Bookmark
+	if err = cur.All(ctx, &rows); err != nil {
+		return nil, err
+	}
+	ids := make([]primitive.ObjectID, 0, len(rows))
+	for _, row := range rows {
+		ids = append(ids, row.PostID)
+	}
+	return ids, nil
+}
+func (r *Bookmarks) Create(ctx context.Context, v *model.Bookmark) error {
+	v.ID = primitive.NewObjectID()
+	_, err := r.c.UpdateOne(ctx, bson.M{"user_id": v.UserID, "post_id": v.PostID}, bson.M{"$setOnInsert": v}, options.Update().SetUpsert(true))
+	return err
+}
+func (r *Bookmarks) Delete(ctx context.Context, userID, postID primitive.ObjectID) error {
+	_, err := r.c.DeleteOne(ctx, bson.M{"user_id": userID, "post_id": postID})
+	return err
+}
+
+type PasswordResets struct{ c *mongo.Collection }
+
+func (r *PasswordResets) Create(ctx context.Context, v *model.PasswordReset) error {
+	v.ID = primitive.NewObjectID()
+	_, err := r.c.InsertOne(ctx, v)
+	return err
+}
+func (r *PasswordResets) FindByHash(ctx context.Context, hash string) (*model.PasswordReset, error) {
+	var v model.PasswordReset
+	err := r.c.FindOne(ctx, bson.M{"token_hash": hash, "expires_at": bson.M{"$gt": time.Now().UTC()}}).Decode(&v)
+	return &v, err
+}
+func (r *PasswordResets) DeleteByHash(ctx context.Context, hash string) error {
+	_, err := r.c.DeleteOne(ctx, bson.M{"token_hash": hash})
+	return err
+}
+func (r *PasswordResets) DeleteByUser(ctx context.Context, id primitive.ObjectID) error {
+	_, err := r.c.DeleteMany(ctx, bson.M{"user_id": id})
+	return err
 }
 
 type Taxonomy struct{ categories, tags *mongo.Collection }

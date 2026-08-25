@@ -18,11 +18,7 @@ export function SavedPage() {
     if (!user) { setLoading(false); return }
     if (bookmarks.length === 0) { setPosts([]); setLoading(false); return }
     setLoading(true)
-    // Fetch all public posts and filter to only bookmarked ones
-    api.posts('?limit=100').then(result => {
-      const saved = (result.items ?? []).filter(p => bookmarks.includes(p.id))
-      setPosts(saved)
-    }).catch(err => setError(err instanceof Error ? err.message : 'Unable to load saved stories'))
+    api.bookmarks().then(result => setPosts(result.posts ?? [])).catch(err => setError(err instanceof Error ? err.message : 'Unable to load saved stories'))
       .finally(() => setLoading(false))
   }, [user, bookmarks])
 

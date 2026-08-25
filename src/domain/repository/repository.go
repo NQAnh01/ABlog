@@ -47,6 +47,17 @@ type SessionRepository interface {
 	DeleteByHash(context.Context, string) error
 	DeleteByUser(context.Context, primitive.ObjectID) error
 }
+type BookmarkRepository interface {
+	ListPostIDs(context.Context, primitive.ObjectID) ([]primitive.ObjectID, error)
+	Create(context.Context, *model.Bookmark) error
+	Delete(context.Context, primitive.ObjectID, primitive.ObjectID) error
+}
+type PasswordResetRepository interface {
+	Create(context.Context, *model.PasswordReset) error
+	FindByHash(context.Context, string) (*model.PasswordReset, error)
+	DeleteByHash(context.Context, string) error
+	DeleteByUser(context.Context, primitive.ObjectID) error
+}
 type TaxonomyRepository interface {
 	ListCategories(context.Context) ([]model.Category, error)
 	FindCategoryBySlug(context.Context, string) (*model.Category, error)

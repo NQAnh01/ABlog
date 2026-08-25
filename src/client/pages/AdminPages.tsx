@@ -5,7 +5,7 @@ import { MarkdownEditor } from '../components/MarkdownEditor'
 import { useAuth } from '../hooks/useAuth'
 import { api } from '../services/api'
 import { useToast } from '../hooks/useToast'
-import type { Category, Dashboard, Media, Post, PostInput, PostVersion, Tag } from '../types'
+import type { Category, Comment, Dashboard, Media, Post, PostInput, PostVersion, Tag } from '../types'
 
 function AdminGuard({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth()
@@ -153,9 +153,8 @@ export function PostEditorPage() {
     try {
       const payload = { ...form, slug: form.slug || makeSlug(form.title) }
       const saved = id ? await api.updatePost(id, payload) : await api.createPost(payload)
-      navigate(`/admin/posts/${saved.id}/edit`, { replace: true })
-      setForm(current => ({ ...current, status: saved.status, slug: saved.slug }))
       toast(id ? 'Story updated successfully.' : 'Story saved successfully.')
+      navigate(saved.status === 'public' ? `/blog/${saved.slug}` : `/stories/${saved.id}/preview`, { replace: true })
     } catch (err) { setError(err instanceof Error ? err.message : 'Unable to save story') }
     finally { setSaving(false) }
   }
@@ -226,7 +225,31 @@ export function AdminDashboardPage() {
   if (authLoading) return <Layout><Loading /></Layout>
   if (!user) return <Navigate to="/login" replace />
   if (user.role !== 'admin') return <Navigate to="/admin/posts" replace />
-  return <Layout><section className="analytics-dashboard container"><header className="admin-heading"><div><span className="eyebrow">EDITORIAL OVERVIEW</span><h1>Dashboard</h1><p>A quick view of publishing activity across Lumina.</p></div><Link className="button" to="/admin/posts">Manage stories</Link></header>{error?<ErrorState message={error}/>:!data?<Loading/>:<><div className="stat-grid">{[['Stories',data.posts],['Published',data.published],['Private',data.private],['Comments',data.comments],['Categories',data.categories],['Tags',data.tags]].map(([label,value])=><article key={label}><span>{label}</span><strong>{value}</strong></article>)}</div><section className="recent-panel"><header><h2>Recently updated</h2><Link to="/admin/posts">View all</Link></header>{data.recent_posts.length?<div>{data.recent_posts.map(post=><article key={post.id}><div><strong>{post.title}</strong><small>{formatDate(post.updated_at)}</small></div><span className={`profile-status ${post.status}`}>{post.status}</span><Link to={`/admin/posts/${post.id}/edit`}>Edit</Link></article>)}</div>:<EmptyState title="No stories yet" text="Create the first story to populate the dashboard."/>}</section></>}</section></Layout>
+  if (!data) return <Layout><section className="analytics-dashboard container"><header className="admin-heading"><div><span className="eyebrow">EDITORIAL OVERVIEW</span><h1>Dashboard</h1><p>A quick view of publishing activity across Lumina.</p></div></header>{error?<ErrorState message={error}/>:<Loading/>}</section></Layout>
+  const publishedRate = data.posts ? Math.round(data.published / data.posts * 100) : 0
+  const stats = [
+    { label: 'Total stories', value: data.posts, note: 'All editorial content', tone: 'violet', icon: 'document' },
+    { label: 'Published', value: data.published, note: `${publishedRate}% of all stories`, tone: 'emerald', icon: 'check' },
+    { label: 'Private', value: data.private, note: 'Drafts and private work', tone: 'amber', icon: 'lock' },
+    { label: 'Comments', value: data.comments, note: 'Reader conversations', tone: 'blue', icon: 'comment' },
+    { label: 'Categories', value: data.categories, note: 'Content collections', tone: 'rose', icon: 'grid' },
+    { label: 'Tags', value: data.tags, note: 'Discovery topics', tone: 'cyan', icon: 'tag' },
+  ]
+  const chartMax = Math.max(...stats.map(item => item.value), 1)
+  return <Layout><section className="analytics-dashboard container">
+    <header className="dashboard-hero"><div><span className="eyebrow">EDITORIAL OVERVIEW</span><h1>Good to see you, {user.name.split(' ')[0]}.</h1><p>Here’s what’s happening across your publication today.</p></div><div className="dashboard-actions"><span className="dashboard-live"><i/>Live overview</span><Link className="button" to="/admin/posts">Manage stories <span>→</span></Link></div></header>
+    <div className="dashboard-stat-grid">{stats.map((item,index)=><article className={`dashboard-stat ${item.tone}`} style={{'--stat-index':index} as React.CSSProperties} key={item.label}><header><span className="dashboard-stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24">{item.icon==='document'?<><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v5h5M9 12h6M9 16h6"/></>:item.icon==='check'?<><circle cx="12" cy="12" r="9"/><path d="m8 12 2.5 2.5L16 9"/></>:item.icon==='lock'?<><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></>:item.icon==='comment'?<><path d="M20 15a3 3 0 0 1-3 3H9l-5 3V7a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3z"/><path d="M8 9h8M8 13h5"/></>:item.icon==='grid'?<><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/></>:<><path d="M20 13 11 22l-9-9V4h9z"/><circle cx="7" cy="9" r="1.5"/></>}</svg></span><span className="dashboard-stat-label">{item.label}</span></header><strong>{item.value.toLocaleString()}</strong><footer><span>{item.note}</span><i style={{'--meter':`${Math.max(8,item.value/chartMax*100)}%`} as React.CSSProperties}/></footer></article>)}</div>
+    <div className="dashboard-content-grid"><section className="overview-panel"><header><div><span className="panel-kicker">CONTENT MIX</span><h2>Publication overview</h2></div><span className="panel-period">All time</span></header><div className="overview-chart"><div className="donut-wrap"><div className="donut-chart" style={{'--published':`${publishedRate * 3.6}deg`} as React.CSSProperties}><div><strong>{publishedRate}%</strong><span>published</span></div></div><div className="donut-legend"><span><i className="published"/>Published <strong>{data.published}</strong></span><span><i className="private"/>Private <strong>{data.private}</strong></span></div></div><div className="metric-bars">{stats.slice(3).map((item,index)=><div key={item.label}><header><span>{item.label}</span><strong>{item.value}</strong></header><i><b style={{'--bar-size':`${Math.max(5,item.value/chartMax*100)}%`,'--bar-index':index} as React.CSSProperties}/></i></div>)}</div></div></section>
+    <section className="recent-panel modern"><header><div><span className="panel-kicker">LATEST ACTIVITY</span><h2>Recently updated</h2></div><Link to="/admin/posts">View all <span>→</span></Link></header>{data.recent_posts.length?<div className="activity-list">{data.recent_posts.map((post,index)=><article style={{'--activity-index':index} as React.CSSProperties} key={post.id}><span className="activity-marker" aria-hidden="true">{post.title.charAt(0)}</span><div><strong>{post.title}</strong><small>Updated {formatDate(post.updated_at)}</small></div><span className={`profile-status ${post.status}`}>{post.status}</span><Link aria-label={`Edit ${post.title}`} to={`/admin/posts/${post.id}/edit`}>↗</Link></article>)}</div>:<EmptyState title="No stories yet" text="Create the first story to populate the dashboard."/>}</section></div>
+  </section></Layout>
 }
 
-export function PlaceholderPage({ title }: { title: string }) { return <Layout><section className="admin container"><span className="eyebrow">LUMINA</span><h1>{title}</h1><p>This route is ready for the next editorial workflow.</p></section></Layout> }
+export function AdminCommentsPage() {
+  const {user,loading:authLoading}=useAuth();const[comments,setComments]=useState<Comment[]>([]);const[loading,setLoading]=useState(true);const[error,setError]=useState('');const[filter,setFilter]=useState('all');const[busy,setBusy]=useState('');const toast=useToast()
+  useEffect(()=>{if(user?.role==='admin')api.adminComments().then(setComments).catch(err=>setError(err instanceof Error?err.message:'Unable to load comments')).finally(()=>setLoading(false))},[user])
+  if(authLoading)return <Layout><Loading/></Layout>;if(!user)return <Navigate to="/login" replace/>;if(user.role!=='admin')return <Navigate to="/profile" replace/>
+  async function status(comment:Comment,next:string){setBusy(comment.id);setError('');try{await api.updateCommentStatus(comment.id,next);setComments(current=>current.map(item=>item.id===comment.id?{...item,status:next}:item));toast(`Comment marked ${next}.`)}catch(err){setError(err instanceof Error?err.message:'Unable to update comment')}finally{setBusy('')}}
+  async function remove(comment:Comment){if(!window.confirm('Permanently delete this comment?'))return;setBusy(comment.id);try{await api.deleteAdminComment(comment.id);setComments(current=>current.filter(item=>item.id!==comment.id));toast('Comment deleted.')}catch(err){setError(err instanceof Error?err.message:'Unable to delete comment')}finally{setBusy('')}}
+  const visible=filter==='all'?comments:comments.filter(comment=>comment.status===filter)
+  return <Layout><section className="admin comment-moderation container"><header className="admin-heading"><div><span className="eyebrow">COMMUNITY</span><h1>Moderate comments</h1><p>Review responses before they become part of the conversation.</p></div><Link to="/admin/dashboard">← Dashboard</Link></header><div className="status-tabs">{['all','pending','approved','rejected'].map(value=><button key={value} className={filter===value?'active':''} onClick={()=>setFilter(value)}>{value} ({value==='all'?comments.length:comments.filter(item=>item.status===value).length})</button>)}</div>{error&&<div className="admin-alert">{error}</div>}{loading?<Loading/>:!visible.length?<EmptyState title="No comments in this queue" text="Try another moderation status."/>:<div className="comment-queue">{visible.map(comment=><article key={comment.id}><header><strong>{comment.user?.name??'Reader'}</strong><span className={`profile-status ${comment.status}`}>{comment.status}</span><time>{formatDate(comment.created_at)}</time></header><p>{comment.content}</p><footer><button disabled={busy===comment.id} onClick={()=>void status(comment,'approved')}>Approve</button><button disabled={busy===comment.id} onClick={()=>void status(comment,'rejected')}>Reject</button><button className="danger" disabled={busy===comment.id} onClick={()=>void remove(comment)}>Delete</button></footer></article>)}</div>}</section></Layout>
+}

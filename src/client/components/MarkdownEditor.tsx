@@ -24,7 +24,7 @@ function normalizeMarkdown(source: string) {
   let inCodeBlock = false
 
   for (const rawLine of source.replace(/\\`\\`\\`/g, '```').split(/\r?\n/)) {
-    let line = rawLine
+    const line = rawLine
     if (!inCodeBlock) {
       const fenceAt = line.indexOf('```')
       if (fenceAt < 0) { output.push(line); continue }
@@ -114,7 +114,7 @@ export function MarkdownEditor({ value, onChange, onError }: Props) {
     if (!element) return
     const start = element.selectionStart, end = element.selectionEnd
     const selected = value.slice(start, end) || action.placeholder || ''
-    let before = action.before, prefix = ''
+    const before = action.before; let prefix = ''
     if (action.line && start > 0 && value[start - 1] !== '\n') prefix = '\n'
     const inserted = `${prefix}${before}${selected}${action.after ?? ''}`
     onChange(value.slice(0, start) + inserted + value.slice(end))

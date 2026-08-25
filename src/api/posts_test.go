@@ -70,6 +70,29 @@ func (apiSessions) FindByHash(context.Context, string) (*model.RefreshSession, e
 func (apiSessions) DeleteByHash(context.Context, string) error             { return nil }
 func (apiSessions) DeleteByUser(context.Context, primitive.ObjectID) error { return nil }
 
+type apiBookmarks struct {
+	items map[primitive.ObjectID]map[primitive.ObjectID]bool
+}
+
+func (f *apiBookmarks) ListPostIDs(_ context.Context, userID primitive.ObjectID) ([]primitive.ObjectID, error) {
+	var ids []primitive.ObjectID
+	for id := range f.items[userID] {
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+func (f *apiBookmarks) Create(_ context.Context, v *model.Bookmark) error {
+	if f.items[v.UserID] == nil {
+		f.items[v.UserID] = map[primitive.ObjectID]bool{}
+	}
+	f.items[v.UserID][v.PostID] = true
+	return nil
+}
+func (f *apiBookmarks) Delete(_ context.Context, userID, postID primitive.ObjectID) error {
+	delete(f.items[userID], postID)
+	return nil
+}
+
 type apiPosts struct {
 	items map[primitive.ObjectID]*model.Post
 }
@@ -79,7 +102,18 @@ func (f *apiPosts) List(_ context.Context, filter repository.PostFilter) ([]mode
 	for _, v := range f.items {
 		statusMatches := filter.Status == "" || v.Status == filter.Status
 		authorMatches := filter.AuthorID.IsZero() || v.AuthorID == filter.AuthorID
-		if statusMatches && authorMatches {
+		categoryMatches, tagMatches := filter.Category == "", filter.Tag == ""
+		for _, id := range v.CategoryIDs {
+			if id.Hex() == filter.Category {
+				categoryMatches = true
+			}
+		}
+		for _, id := range v.TagIDs {
+			if id.Hex() == filter.Tag {
+				tagMatches = true
+			}
+		}
+		if statusMatches && authorMatches && categoryMatches && tagMatches {
 			out = append(out, *v)
 		}
 	}
@@ -114,6 +148,19 @@ func (f *apiPosts) Update(_ context.Context, v *model.Post) error {
 func (f *apiPosts) Delete(_ context.Context, id primitive.ObjectID) error {
 	delete(f.items, id)
 	return nil
+}
+func (f *apiPosts) FindPublicByIDs(_ context.Context, ids []primitive.ObjectID) ([]model.Post, error) {
+	wanted := map[primitive.ObjectID]bool{}
+	for _, id := range ids {
+		wanted[id] = true
+	}
+	var out []model.Post
+	for id, post := range f.items {
+		if wanted[id] && (post.Status == "public" || post.Status == "published") {
+			out = append(out, *post)
+		}
+	}
+	return out, nil
 }
 
 type apiComments struct{}
@@ -173,8 +220,48 @@ func postTestServer(t *testing.T) (*Server, string, string) {
 	users := &apiUsers{items: map[primitive.ObjectID]*model.User{adminID: {ID: adminID, Name: "Editor", Email: "editor@example.com", PasswordHash: string(hash), Role: "admin"}, userID: {ID: userID, Name: "Reader", Email: "reader@example.com", PasswordHash: string(hash), Role: "user"}}}
 	posts := &apiPosts{items: map[primitive.ObjectID]*model.Post{}}
 	auth := user.Service{Users: users, Sessions: apiSessions{}, Secret: secret, AccessTTL: time.Hour, RefreshTTL: time.Hour}
-	server := New(config.Config{ClientOrigin: "http://localhost:5173", JWTSecret: string(secret)}, auth, post.Service{Repo: posts}, comment.Service{Comments: apiComments{}, Posts: posts}, taxonomy.Service{Repo: apiTaxonomy{}}, apiStorage{})
+	server := New(config.Config{ClientOrigin: "http://localhost:5173", JWTSecret: string(secret)}, auth, post.Service{Repo: posts}, comment.Service{Comments: apiComments{}, Posts: posts}, taxonomy.Service{Repo: apiTaxonomy{}}, apiStorage{}, &apiBookmarks{items: map[primitive.ObjectID]map[primitive.ObjectID]bool{}})
 	return server, accessToken(t, secret, adminID, "admin"), accessToken(t, secret, userID, "user")
+}
+
+func TestBookmarkFlow(t *testing.T) {
+	server, adminToken, _ := postTestServer(t)
+	status, created := jsonRequest(t, server, "POST", "/api/admin/posts", adminToken, map[string]any{"title": "Saved story", "content": "Worth reading", "status": "public", "category_ids": []string{}, "tag_ids": []string{}})
+	if status != 201 {
+		t.Fatalf("create status=%d", status)
+	}
+	id := created["data"].(map[string]any)["id"].(string)
+	status, _ = jsonRequest(t, server, "PUT", "/api/me/bookmarks/"+id, adminToken, nil)
+	if status != 204 {
+		t.Fatalf("bookmark status=%d", status)
+	}
+	status, listed := jsonRequest(t, server, "GET", "/api/me/bookmarks", adminToken, nil)
+	if status != 200 || len(listed["data"].(map[string]any)["posts"].([]any)) != 1 {
+		t.Fatalf("list=%d %v", status, listed)
+	}
+	status, _ = jsonRequest(t, server, "DELETE", "/api/me/bookmarks/"+id, adminToken, nil)
+	if status != 204 {
+		t.Fatalf("delete status=%d", status)
+	}
+}
+
+func TestPublicPostCategoryAndTagFilters(t *testing.T) {
+	server, adminToken, _ := postTestServer(t)
+	categoryID, tagID := primitive.NewObjectID(), primitive.NewObjectID()
+	for index, input := range []map[string]any{{"title": "Matching story", "content": "Text", "status": "public", "category_ids": []string{categoryID.Hex()}, "tag_ids": []string{tagID.Hex()}}, {"title": "Other story", "content": "Text", "status": "public", "category_ids": []string{}, "tag_ids": []string{}}} {
+		status, _ := jsonRequest(t, server, "POST", "/api/admin/posts", adminToken, input)
+		if status != 201 {
+			t.Fatalf("create %d status=%d", index, status)
+		}
+	}
+	status, result := jsonRequest(t, server, "GET", "/api/posts?category="+categoryID.Hex()+"&tag="+tagID.Hex(), "", nil)
+	if status != 200 {
+		t.Fatalf("filter status=%d", status)
+	}
+	data := result["data"].(map[string]any)
+	if data["total"].(float64) != 1 {
+		t.Fatalf("filter result=%v", result)
+	}
 }
 func accessToken(t *testing.T, secret []byte, id primitive.ObjectID, role string) string {
 	t.Helper()

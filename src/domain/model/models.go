@@ -74,3 +74,16 @@ type RefreshSession struct {
 	ExpiresAt time.Time          `bson:"expires_at"`
 	CreatedAt time.Time          `bson:"created_at"`
 }
+type Bookmark struct {
+	ID        primitive.ObjectID `bson:"_id,omitempty" json:"id"`
+	UserID    primitive.ObjectID `bson:"user_id" json:"user_id"`
+	PostID    primitive.ObjectID `bson:"post_id" json:"post_id"`
+	CreatedAt time.Time          `bson:"created_at" json:"created_at"`
+}
+type PasswordReset struct {
+	ID        primitive.ObjectID `bson:"_id,omitempty"`
+	UserID    primitive.ObjectID `bson:"user_id"`
+	TokenHash string             `bson:"token_hash"`
+	ExpiresAt time.Time          `bson:"expires_at"`
+	CreatedAt time.Time          `bson:"created_at"`
+}
