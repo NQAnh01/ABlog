@@ -14,3 +14,4 @@
 .theme-dark .settings-panel input:disabled{background:#20283a;color:#aeb9cf}
 .theme-dark .settings-password button{color:var(--primary)}
 @media(max-width:850px){.settings-layout{grid-template-columns:1fr}}
+.settings-panel textarea{width:100%;min-height:110px;padding:12px 14px;resize:vertical;border:1px solid var(--line);border-radius:10px;background:var(--card);color:inherit;font:inherit}

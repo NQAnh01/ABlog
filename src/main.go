@@ -6,6 +6,8 @@ import (
 	"lumina/src/api"
 	"lumina/src/domain/comment"
 	"lumina/src/domain/post"
+	"lumina/src/domain/recommendation"
+	seriesdomain "lumina/src/domain/series"
 	"lumina/src/domain/taxonomy"
 	"lumina/src/domain/user"
 	"lumina/src/infrastructure/config"
@@ -36,7 +38,9 @@ func main() {
 	}
 	auth := user.Service{Users: repos.Users, Sessions: repos.Sessions, PasswordResets: repos.PasswordResets, Secret: []byte(cfg.JWTSecret), AccessTTL: cfg.AccessTTL, RefreshTTL: cfg.RefreshTTL}
 	posts := post.Service{Repo: repos.Posts, Versions: repos.Versions}
-	comments := comment.Service{Comments: repos.Comments, Posts: repos.Posts}
+	comments := comment.Service{Comments: repos.Comments, Posts: repos.Posts, BlockedWords: comment.LoadBlockedWords(cfg.CommentBlocklistPath)}
+	seriesService := seriesdomain.Service{Repo: repos.Series, Posts: repos.Posts, Users: repos.Users}
+	recommendations := &recommendation.Service{Posts: repos.Posts, Bookmarks: repos.Bookmarks, Follows: repos.Follows, Series: repos.Series}
 	taxonomies := taxonomy.Service{Repo: repos.Taxonomy}
 	var objectStorage storage.Storage = storage.Local{Root: cfg.StoragePath, BaseURL: "/uploads"}
 	if cfg.StorageType == "cloudinary" {
@@ -46,7 +50,7 @@ func main() {
 		}
 		objectStorage = cloudinaryStorage
 	}
-	server := api.New(cfg, auth, posts, comments, taxonomies, objectStorage, repos.Bookmarks)
+	server := api.New(cfg, auth, posts, comments, taxonomies, seriesService, recommendations, objectStorage, repos.Follows, repos.Bookmarks)
 	listener, err := net.Listen("tcp4", ":"+cfg.Port)
 	if err != nil {
 		log.Fatalf("listen on :%s: %v", cfg.Port, err)

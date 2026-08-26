@@ -59,3 +59,27 @@ func TestCommentPermission(t *testing.T) {
 		t.Fatal("owner should delete comment")
 	}
 }
+func TestCreateFlagsBlockedKeywordAndStoresMentions(t *testing.T) {
+	userID, mentionID := primitive.NewObjectID(), primitive.NewObjectID()
+	postValue := &model.Post{ID: primitive.NewObjectID()}
+	repo := &commentsFake{}
+	service := Service{Comments: repo, Posts: postsFake{post: postValue}, BlockedWords: []string{"spam-link"}}
+	created, err := service.Create(context.Background(), "story", userID, "Please visit SPAM-LINK now", primitive.NilObjectID, []primitive.ObjectID{mentionID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.Status != "pending" {
+		t.Fatalf("expected pending moderation status, got %s", created.Status)
+	}
+	if len(created.Mentions) != 1 || created.Mentions[0] != mentionID {
+		t.Fatal("mention ids should be persisted")
+	}
+}
+func TestCreateRejectsParentFromAnotherPost(t *testing.T) {
+	postValue := &model.Post{ID: primitive.NewObjectID()}
+	repo := &commentsFake{item: &model.Comment{ID: primitive.NewObjectID(), PostID: primitive.NewObjectID(), Status: "approved"}}
+	service := Service{Comments: repo, Posts: postsFake{post: postValue}}
+	if _, err := service.Create(context.Background(), "story", primitive.NewObjectID(), "A reply", repo.item.ID, nil); err == nil {
+		t.Fatal("parent from another post should be rejected")
+	}
+}

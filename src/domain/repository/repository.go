@@ -15,15 +15,28 @@ type UserRepository interface {
 	UpdatePassword(context.Context, primitive.ObjectID, string) error
 	UpdateAvatar(context.Context, primitive.ObjectID, string) error
 }
+type UserBatchRepository interface {
+	FindByIDs(context.Context, []primitive.ObjectID) ([]model.User, error)
+}
+type PublicAuthorRepository interface {
+	FindByUsername(context.Context, string) (*model.User, error)
+	UpdateAuthorProfile(context.Context, primitive.ObjectID, string, model.SocialLinks) error
+}
 type PostFilter struct {
 	Status, Search, Category, Tag string
 	Page, Limit                   int
+	FeaturedOnly                  bool
 	AuthorID                      primitive.ObjectID
 	DateFrom, DateTo              time.Time
 }
 type PostVersionRepository interface {
 	Create(context.Context, primitive.ObjectID, *model.Post) error
 	List(context.Context, primitive.ObjectID) ([]model.PostVersion, error)
+}
+type PostDraftRepository interface {
+	GetDraft(context.Context, primitive.ObjectID) (*model.PostDraft, error)
+	SaveDraft(context.Context, primitive.ObjectID, *model.PostDraft) (bool, error)
+	DeleteDraft(context.Context, primitive.ObjectID) error
 }
 type PostRepository interface {
 	List(context.Context, PostFilter) ([]model.Post, int64, error)
@@ -41,6 +54,13 @@ type CommentRepository interface {
 	UpdateStatus(context.Context, primitive.ObjectID, string) error
 	Delete(context.Context, primitive.ObjectID) error
 }
+type PostReactionRepository interface {
+	TogglePostReaction(context.Context, primitive.ObjectID, primitive.ObjectID, string) (*model.Post, error)
+}
+type CommentInteractionRepository interface {
+	ToggleCommentReaction(context.Context, primitive.ObjectID, primitive.ObjectID, string) (*model.Comment, error)
+	PinComment(context.Context, primitive.ObjectID, primitive.ObjectID, bool) error
+}
 type SessionRepository interface {
 	Create(context.Context, *model.RefreshSession) error
 	FindByHash(context.Context, string) (*model.RefreshSession, error)
@@ -51,6 +71,25 @@ type BookmarkRepository interface {
 	ListPostIDs(context.Context, primitive.ObjectID) ([]primitive.ObjectID, error)
 	Create(context.Context, *model.Bookmark) error
 	Delete(context.Context, primitive.ObjectID, primitive.ObjectID) error
+}
+type FollowRepository interface {
+	Create(context.Context, *model.Follow) error
+	Delete(context.Context, primitive.ObjectID, primitive.ObjectID) error
+	Exists(context.Context, primitive.ObjectID, primitive.ObjectID) (bool, error)
+	Count(context.Context, primitive.ObjectID) (int64, error)
+	ListAuthorIDs(context.Context, primitive.ObjectID) ([]primitive.ObjectID, error)
+}
+type SeriesRepository interface {
+	Create(context.Context, *model.Series) error
+	Update(context.Context, *model.Series) error
+	Delete(context.Context, primitive.ObjectID) error
+	FindByID(context.Context, primitive.ObjectID) (*model.Series, error)
+	FindBySlug(context.Context, string) (*model.Series, error)
+	List(context.Context, primitive.ObjectID, bool, bool) ([]model.Series, error)
+	ReplacePosts(context.Context, primitive.ObjectID, []primitive.ObjectID) error
+	ListPosts(context.Context, primitive.ObjectID) ([]model.SeriesPost, error)
+	FindByPost(context.Context, primitive.ObjectID) (*model.SeriesPost, error)
+	RemovePost(context.Context, primitive.ObjectID, primitive.ObjectID) error
 }
 type PasswordResetRepository interface {
 	Create(context.Context, *model.PasswordReset) error

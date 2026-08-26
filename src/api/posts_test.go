@@ -19,6 +19,7 @@ import (
 	"lumina/src/domain/model"
 	"lumina/src/domain/post"
 	"lumina/src/domain/repository"
+	seriesdomain "lumina/src/domain/series"
 	"lumina/src/domain/taxonomy"
 	"lumina/src/domain/user"
 	"lumina/src/infrastructure/config"
@@ -220,7 +221,7 @@ func postTestServer(t *testing.T) (*Server, string, string) {
 	users := &apiUsers{items: map[primitive.ObjectID]*model.User{adminID: {ID: adminID, Name: "Editor", Email: "editor@example.com", PasswordHash: string(hash), Role: "admin"}, userID: {ID: userID, Name: "Reader", Email: "reader@example.com", PasswordHash: string(hash), Role: "user"}}}
 	posts := &apiPosts{items: map[primitive.ObjectID]*model.Post{}}
 	auth := user.Service{Users: users, Sessions: apiSessions{}, Secret: secret, AccessTTL: time.Hour, RefreshTTL: time.Hour}
-	server := New(config.Config{ClientOrigin: "http://localhost:5173", JWTSecret: string(secret)}, auth, post.Service{Repo: posts}, comment.Service{Comments: apiComments{}, Posts: posts}, taxonomy.Service{Repo: apiTaxonomy{}}, apiStorage{}, &apiBookmarks{items: map[primitive.ObjectID]map[primitive.ObjectID]bool{}})
+	server := New(config.Config{ClientOrigin: "http://localhost:5173", JWTSecret: string(secret)}, auth, post.Service{Repo: posts}, comment.Service{Comments: apiComments{}, Posts: posts}, taxonomy.Service{Repo: apiTaxonomy{}}, seriesdomain.Service{}, nil, apiStorage{}, nil, &apiBookmarks{items: map[primitive.ObjectID]map[primitive.ObjectID]bool{}})
 	return server, accessToken(t, secret, adminID, "admin"), accessToken(t, secret, userID, "user")
 }
 

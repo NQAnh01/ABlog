@@ -9,11 +9,14 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/google/uuid"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
 	"log"
 	"lumina/src/domain/comment"
 	"lumina/src/domain/model"
 	"lumina/src/domain/post"
+	"lumina/src/domain/recommendation"
 	"lumina/src/domain/repository"
+	seriesdomain "lumina/src/domain/series"
 	"lumina/src/domain/taxonomy"
 	"lumina/src/domain/user"
 	"lumina/src/infrastructure/config"
@@ -22,24 +25,31 @@ import (
 	"net/http"
 	"net/smtp"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 )
 
 type Server struct {
-	App       *fiber.App
-	auth      user.Service
-	posts     post.Service
-	comments  comment.Service
-	taxonomy  taxonomy.Service
-	storage   store.Storage
-	bookmarks repository.BookmarkRepository
-	cfg       config.Config
+	App             *fiber.App
+	auth            user.Service
+	posts           post.Service
+	comments        comment.Service
+	taxonomy        taxonomy.Service
+	storage         store.Storage
+	bookmarks       repository.BookmarkRepository
+	follows         repository.FollowRepository
+	series          seriesdomain.Service
+	recommendations *recommendation.Service
+	cfg             config.Config
 }
 
-func New(cfg config.Config, a user.Service, p post.Service, c comment.Service, t taxonomy.Service, st store.Storage, bookmarks ...repository.BookmarkRepository) *Server {
-	s := &Server{auth: a, posts: p, comments: c, taxonomy: t, storage: st, cfg: cfg}
+func New(cfg config.Config, a user.Service, p post.Service, c comment.Service, t taxonomy.Service, series seriesdomain.Service, recommendations *recommendation.Service, st store.Storage, follows repository.FollowRepository, bookmarks ...repository.BookmarkRepository) *Server {
+	if cfg.CommentRateLimit < 1 {
+		cfg.CommentRateLimit = 6
+	}
+	s := &Server{auth: a, posts: p, comments: c, taxonomy: t, series: series, recommendations: recommendations, storage: st, follows: follows, cfg: cfg}
 	if len(bookmarks) > 0 {
 		s.bookmarks = bookmarks[0]
 	}
@@ -77,15 +87,34 @@ func (s *Server) routes() {
 	api.Get("/categories/:slug", s.getCategory)
 	api.Get("/tags", s.listTags)
 	api.Get("/tags/:slug", s.getTag)
-	api.Post("/posts/:slug/comments", s.requireAuth, s.createComment)
+	api.Get("/series", s.listSeries)
+	api.Get("/series/:slug", s.getSeries)
+	api.Get("/posts/:slug/series", s.postSeries)
+	api.Get("/authors/:username", s.publicAuthor)
+	api.Get("/authors/:username/follow", s.authorFollowStatus)
+	api.Get("/recommendations", s.contextRecommendations)
+	commentLimiter := limiter.New(limiter.Config{Max: s.cfg.CommentRateLimit, Expiration: time.Minute, KeyGenerator: func(c *fiber.Ctx) string {
+		if id, ok := c.Locals("user_id").(primitive.ObjectID); ok {
+			return id.Hex()
+		}
+		return c.IP()
+	}})
+	api.Post("/posts/:slug/comments", s.requireAuth, commentLimiter, s.createComment)
+	api.Put("/posts/:slug/reaction", s.requireAuth, s.togglePostReaction)
+	api.Put("/comments/:id/reaction", s.requireAuth, s.toggleCommentReaction)
+	api.Put("/comments/:id/pin", s.requireAuth, s.pinComment)
 	api.Delete("/comments/:id", s.requireAuth, s.deleteComment)
 	mine := api.Group("/me", s.requireAuth)
 	mine.Put("/profile", s.updateProfile)
+	mine.Put("/author-profile", s.updateAuthorProfile)
 	mine.Put("/password", s.changePassword)
 	mine.Post("/avatar", s.uploadAvatar)
 	mine.Get("/posts", s.myListPosts)
 	mine.Get("/posts/:id", s.myGetPost)
 	mine.Get("/posts/:id/versions", s.myPostVersions)
+	mine.Get("/posts/:id/draft", s.myGetPostDraft)
+	mine.Put("/posts/:id/draft", s.mySavePostDraft)
+	mine.Delete("/posts/:id/draft", s.myDeletePostDraft)
 	mine.Post("/posts", s.createPost)
 	mine.Put("/posts/:id", s.myUpdatePost)
 	mine.Delete("/posts/:id", s.myDeletePost)
@@ -96,6 +125,15 @@ func (s *Server) routes() {
 	mine.Put("/tags/:id", s.saveTag)
 	mine.Delete("/tags/:id", s.deleteTag)
 	mine.Get("/bookmarks", s.listBookmarks)
+	mine.Get("/series", s.mySeries)
+	mine.Get("/series/:id", s.myGetSeries)
+	mine.Post("/series", s.saveSeries)
+	mine.Put("/series/:id", s.saveSeries)
+	mine.Delete("/series/:id", s.deleteSeries)
+	mine.Put("/series/:id/posts", s.setSeriesPosts)
+	mine.Put("/authors/:authorId/follow", s.followAuthor)
+	mine.Get("/recommendations", s.personalRecommendations)
+	mine.Delete("/authors/:authorId/follow", s.unfollowAuthor)
 	mine.Put("/bookmarks/:postId", s.addBookmark)
 	mine.Delete("/bookmarks/:postId", s.removeBookmark)
 	admin := api.Group("/admin", s.requireAuth, s.requireAdmin)
@@ -198,12 +236,26 @@ func (s *Server) listBookmarks(c *fiber.Ctx) error {
 		return err
 	}
 	posts := make([]model.Post, 0, len(ids))
-	for _, id := range ids {
-		postValue, err := s.posts.Repo.FindByID(c.UserContext(), id)
-		if err == nil && (postValue.Status == "public" || postValue.Status == "published") {
-			posts = append(posts, *postValue)
+	if batchRepo, ok := s.posts.Repo.(interface {
+		FindPublicByIDs(context.Context, []primitive.ObjectID) ([]model.Post, error)
+	}); ok {
+		posts, err = batchRepo.FindPublicByIDs(c.UserContext(), ids)
+		if err != nil {
+			return err
+		}
+	} else {
+		for _, id := range ids {
+			postValue, findErr := s.posts.Repo.FindByID(c.UserContext(), id)
+			if findErr == nil && (postValue.Status == "public" || postValue.Status == "published") {
+				posts = append(posts, *postValue)
+			}
 		}
 	}
+	order := make(map[primitive.ObjectID]int, len(ids))
+	for index, id := range ids {
+		order[id] = index
+	}
+	sort.SliceStable(posts, func(i, j int) bool { return order[posts[i].ID] < order[posts[j].ID] })
 	s.populateAuthors(c.UserContext(), posts)
 	return success(c, 200, fiber.Map{"post_ids": ids, "posts": posts})
 }
@@ -333,6 +385,36 @@ func (s *Server) populateAuthors(ctx context.Context, posts []model.Post) {
 		}
 	}
 }
+func (s *Server) populateCommentUsers(ctx context.Context, comments []model.Comment) {
+	seen := map[primitive.ObjectID]*model.User{}
+	ids := make([]primitive.ObjectID, 0)
+	unique := map[primitive.ObjectID]bool{}
+	for _, commentValue := range comments {
+		if !commentValue.UserID.IsZero() && !unique[commentValue.UserID] {
+			unique[commentValue.UserID] = true
+			ids = append(ids, commentValue.UserID)
+		}
+	}
+	if batch, ok := s.auth.Users.(repository.UserBatchRepository); ok {
+		if users, err := batch.FindByIDs(ctx, ids); err == nil {
+			for index := range users {
+				userValue := users[index]
+				seen[userValue.ID] = &userValue
+			}
+		}
+	}
+	for index := range comments {
+		id := comments[index].UserID
+		if userValue, ok := seen[id]; ok {
+			comments[index].User = userValue
+			continue
+		}
+		if userValue, err := s.auth.Users.FindByID(ctx, id); err == nil {
+			seen[id] = userValue
+			comments[index].User = userValue
+		}
+	}
+}
 func (s *Server) adminListPosts(c *fiber.Ctx) error {
 	page, _ := strconv.Atoi(c.Query("page", "1"))
 	limit, _ := strconv.Atoi(c.Query("limit", "20"))
@@ -439,7 +521,7 @@ func (s *Server) myListPosts(c *fiber.Ctx) error {
 	return success(c, 200, fiber.Map{"items": items, "page": page, "limit": limit, "total": total})
 }
 func postFilter(c *fiber.Ctx, status string, page, limit int) (repository.PostFilter, error) {
-	filter := repository.PostFilter{Status: status, Search: c.Query("q"), Category: c.Query("category"), Tag: c.Query("tag"), Page: page, Limit: limit}
+	filter := repository.PostFilter{Status: status, Search: c.Query("q"), Category: c.Query("category"), Tag: c.Query("tag"), Page: page, Limit: limit, FeaturedOnly: c.Query("featured") == "true"}
 	if raw := c.Query("from"); raw != "" {
 		value, err := time.Parse("2006-01-02", raw)
 		if err != nil {
@@ -490,6 +572,79 @@ func (s *Server) myPostVersions(c *fiber.Ctx) error {
 		return err
 	}
 	return success(c, 200, versions)
+}
+func (s *Server) draftRepo() (repository.PostDraftRepository, bool) {
+	repo, ok := s.posts.Repo.(repository.PostDraftRepository)
+	return repo, ok
+}
+func (s *Server) managedPost(c *fiber.Ctx) (primitive.ObjectID, *model.Post, error) {
+	id, err := primitive.ObjectIDFromHex(c.Params("id"))
+	if err != nil {
+		return id, nil, bad("INVALID_ID", "Invalid identifier")
+	}
+	p, err := s.posts.GetAdmin(c.UserContext(), id)
+	if err != nil {
+		return id, nil, fiber.ErrNotFound
+	}
+	if !s.canManagePost(c, p) {
+		return id, nil, fiber.ErrForbidden
+	}
+	return id, p, nil
+}
+func (s *Server) myGetPostDraft(c *fiber.Ctx) error {
+	id, postValue, err := s.managedPost(c)
+	if err != nil {
+		return err
+	}
+	repo, ok := s.draftRepo()
+	if !ok {
+		return fiber.NewError(503, "autosave unavailable")
+	}
+	draft, err := repo.GetDraft(c.UserContext(), id)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return c.SendStatus(204)
+	}
+	if err != nil {
+		return err
+	}
+	return success(c, 200, fiber.Map{"draft": draft, "newer": draft.UpdatedAt.After(postValue.UpdatedAt)})
+}
+func (s *Server) mySavePostDraft(c *fiber.Ctx) error {
+	id, _, err := s.managedPost(c)
+	if err != nil {
+		return err
+	}
+	var draft model.PostDraft
+	if err = c.BodyParser(&draft); err != nil {
+		return bad("INVALID_REQUEST", "Invalid request")
+	}
+	if draft.Sequence < 1 {
+		return fiber.NewError(422, "invalid autosave sequence")
+	}
+	draft.UpdatedAt = time.Now().UTC()
+	repo, ok := s.draftRepo()
+	if !ok {
+		return fiber.NewError(503, "autosave unavailable")
+	}
+	accepted, err := repo.SaveDraft(c.UserContext(), id, &draft)
+	if err != nil {
+		return err
+	}
+	return success(c, 200, fiber.Map{"accepted": accepted, "sequence": draft.Sequence, "updated_at": draft.UpdatedAt})
+}
+func (s *Server) myDeletePostDraft(c *fiber.Ctx) error {
+	id, _, err := s.managedPost(c)
+	if err != nil {
+		return err
+	}
+	repo, ok := s.draftRepo()
+	if !ok {
+		return fiber.NewError(503, "autosave unavailable")
+	}
+	if err = repo.DeleteDraft(c.UserContext(), id); err != nil {
+		return err
+	}
+	return c.SendStatus(204)
 }
 func (s *Server) myUpdatePost(c *fiber.Ctx) error {
 	id, err := primitive.ObjectIDFromHex(c.Params("id"))
@@ -577,20 +732,116 @@ func (s *Server) listComments(c *fiber.Ctx) error {
 	if e != nil {
 		return fiber.ErrNotFound
 	}
+	s.populateCommentUsers(c.UserContext(), v)
 	return success(c, 200, v)
 }
 func (s *Server) createComment(c *fiber.Ctx) error {
 	var in struct {
-		Content string `json:"content"`
+		Content    string   `json:"content"`
+		ParentID   string   `json:"parent_id"`
+		MentionIDs []string `json:"mention_ids"`
 	}
 	if e := c.BodyParser(&in); e != nil {
 		return bad("INVALID_REQUEST", "Invalid request")
 	}
-	v, e := s.comments.Create(c.UserContext(), c.Params("slug"), c.Locals("user_id").(primitive.ObjectID), in.Content)
+	var parentID primitive.ObjectID
+	if in.ParentID != "" {
+		var err error
+		parentID, err = primitive.ObjectIDFromHex(in.ParentID)
+		if err != nil {
+			return bad("INVALID_PARENT", "Invalid parent comment")
+		}
+	}
+	mentions := make([]primitive.ObjectID, 0, len(in.MentionIDs))
+	for _, raw := range in.MentionIDs {
+		if id, err := primitive.ObjectIDFromHex(raw); err == nil {
+			mentions = append(mentions, id)
+		}
+	}
+	v, e := s.comments.Create(c.UserContext(), c.Params("slug"), c.Locals("user_id").(primitive.ObjectID), in.Content, parentID, mentions)
 	if e != nil {
 		return fiber.NewError(422, e.Error())
 	}
+	if userValue, err := s.auth.Users.FindByID(c.UserContext(), v.UserID); err == nil {
+		v.User = userValue
+	}
 	return success(c, 201, v)
+}
+func validReaction(value string) bool {
+	return value == "insightful" || value == "beautiful" || value == "useful"
+}
+func (s *Server) togglePostReaction(c *fiber.Ctx) error {
+	p, err := s.posts.Get(c.UserContext(), c.Params("slug"))
+	if err != nil {
+		return fiber.ErrNotFound
+	}
+	var input struct {
+		Type string `json:"type"`
+	}
+	if err = c.BodyParser(&input); err != nil || !validReaction(input.Type) {
+		return fiber.NewError(422, "invalid reaction")
+	}
+	repo, ok := s.posts.Repo.(repository.PostReactionRepository)
+	if !ok {
+		return fiber.NewError(503, "reactions unavailable")
+	}
+	updated, err := repo.TogglePostReaction(c.UserContext(), p.ID, c.Locals("user_id").(primitive.ObjectID), input.Type)
+	if err != nil {
+		return err
+	}
+	return success(c, 200, updated.Reactions)
+}
+func (s *Server) toggleCommentReaction(c *fiber.Ctx) error {
+	id, err := primitive.ObjectIDFromHex(c.Params("id"))
+	if err != nil {
+		return bad("INVALID_ID", "Invalid identifier")
+	}
+	var input struct {
+		Type string `json:"type"`
+	}
+	if err = c.BodyParser(&input); err != nil || !validReaction(input.Type) {
+		return fiber.NewError(422, "invalid reaction")
+	}
+	repo, ok := s.comments.Comments.(repository.CommentInteractionRepository)
+	if !ok {
+		return fiber.NewError(503, "reactions unavailable")
+	}
+	updated, err := repo.ToggleCommentReaction(c.UserContext(), id, c.Locals("user_id").(primitive.ObjectID), input.Type)
+	if err != nil {
+		return err
+	}
+	return success(c, 200, updated.Reactions)
+}
+func (s *Server) pinComment(c *fiber.Ctx) error {
+	id, err := primitive.ObjectIDFromHex(c.Params("id"))
+	if err != nil {
+		return bad("INVALID_ID", "Invalid identifier")
+	}
+	commentValue, err := s.comments.Comments.FindByID(c.UserContext(), id)
+	if err != nil {
+		return fiber.ErrNotFound
+	}
+	postValue, err := s.posts.Repo.FindByID(c.UserContext(), commentValue.PostID)
+	if err != nil {
+		return fiber.ErrNotFound
+	}
+	if postValue.AuthorID != c.Locals("user_id").(primitive.ObjectID) {
+		return fiber.ErrForbidden
+	}
+	var input struct {
+		Pinned bool `json:"pinned"`
+	}
+	if err = c.BodyParser(&input); err != nil {
+		return bad("INVALID_REQUEST", "Invalid request")
+	}
+	repo, ok := s.comments.Comments.(repository.CommentInteractionRepository)
+	if !ok {
+		return fiber.NewError(503, "pinning unavailable")
+	}
+	if err = repo.PinComment(c.UserContext(), commentValue.PostID, id, input.Pinned); err != nil {
+		return err
+	}
+	return success(c, 200, fiber.Map{"id": id, "is_pinned": input.Pinned})
 }
 func (s *Server) deleteComment(c *fiber.Ctx) error {
 	id, e := primitive.ObjectIDFromHex(c.Params("id"))

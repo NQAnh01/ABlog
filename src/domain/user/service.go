@@ -85,7 +85,8 @@ func (s Service) Register(ctx context.Context, name, email, password string) (*T
 		return nil, e
 	}
 	now := time.Now().UTC()
-	u := &model.User{Email: email, PasswordHash: string(hash), Name: name, Role: "user", CreatedAt: now, UpdatedAt: now}
+	u := &model.User{ID: primitive.NewObjectID(), Email: email, PasswordHash: string(hash), Name: name, Role: "user", CreatedAt: now, UpdatedAt: now}
+	u.Username = "author-" + u.ID.Hex()
 	if e = s.Users.Create(ctx, u); e != nil {
 		return nil, e
 	}

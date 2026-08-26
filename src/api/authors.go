@@ -1,0 +1,146 @@
+package api
+
+import (
+	"sort"
+	"strings"
+
+	"github.com/gofiber/fiber/v2"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"lumina/src/domain/model"
+	"lumina/src/domain/repository"
+)
+
+func (s *Server) authorByUsername(c *fiber.Ctx) (*model.User, error) {
+	repo, ok := s.auth.Users.(repository.PublicAuthorRepository)
+	if !ok {
+		return nil, fiber.ErrNotFound
+	}
+	value, err := repo.FindByUsername(c.UserContext(), strings.ToLower(c.Params("username")))
+	if err != nil {
+		return nil, fiber.ErrNotFound
+	}
+	return value, nil
+}
+
+func publicUser(value *model.User) fiber.Map {
+	return fiber.Map{"id": value.ID, "username": value.Username, "name": value.Name, "avatar": value.Avatar, "bio": value.Bio, "social_links": value.SocialLinks, "created_at": value.CreatedAt}
+}
+
+func (s *Server) publicAuthor(c *fiber.Ctx) error {
+	author, err := s.authorByUsername(c)
+	if err != nil {
+		return err
+	}
+	posts, total, err := s.posts.List(c.UserContext(), repository.PostFilter{Status: "public", AuthorID: author.ID, Page: 1, Limit: 100})
+	if err != nil {
+		return err
+	}
+	sort.SliceStable(posts, func(i, j int) bool {
+		if posts[i].IsPinnedOnProfile != posts[j].IsPinnedOnProfile {
+			return posts[i].IsPinnedOnProfile
+		}
+		return posts[i].PublishedAt != nil && posts[j].PublishedAt != nil && posts[i].PublishedAt.After(*posts[j].PublishedAt)
+	})
+	seriesValues, err := s.series.List(c.UserContext(), author.ID, true, false)
+	if err != nil {
+		return err
+	}
+	followerCount := int64(0)
+	if s.follows != nil {
+		followerCount, _ = s.follows.Count(c.UserContext(), author.ID)
+	}
+	return success(c, 200, fiber.Map{"author": publicUser(author), "posts": posts, "series": seriesValues, "post_count": total, "follower_count": followerCount})
+}
+
+func (s *Server) optionalViewer(c *fiber.Ctx) primitive.ObjectID {
+	raw := strings.TrimSpace(c.Get("Authorization"))
+	if !strings.HasPrefix(raw, "Bearer ") {
+		return primitive.NilObjectID
+	}
+	id, _, err := s.auth.ParseAccess(strings.TrimSpace(strings.TrimPrefix(raw, "Bearer ")))
+	if err != nil {
+		return primitive.NilObjectID
+	}
+	return id
+}
+
+func (s *Server) authorFollowStatus(c *fiber.Ctx) error {
+	author, err := s.authorByUsername(c)
+	if err != nil {
+		return err
+	}
+	viewer := s.optionalViewer(c)
+	following := false
+	if s.follows != nil && !viewer.IsZero() {
+		following, _ = s.follows.Exists(c.UserContext(), viewer, author.ID)
+	}
+	count := int64(0)
+	if s.follows != nil {
+		count, _ = s.follows.Count(c.UserContext(), author.ID)
+	}
+	return success(c, 200, fiber.Map{"following": following, "follower_count": count})
+}
+
+func (s *Server) followAuthor(c *fiber.Ctx) error {
+	authorID, err := primitive.ObjectIDFromHex(c.Params("authorId"))
+	if err != nil {
+		return bad("INVALID_ID", "Invalid identifier")
+	}
+	followerID := c.Locals("user_id").(primitive.ObjectID)
+	if followerID == authorID {
+		return fiber.NewError(422, "you cannot follow yourself")
+	}
+	if _, err = s.auth.Users.FindByID(c.UserContext(), authorID); err != nil {
+		return fiber.ErrNotFound
+	}
+	if s.follows == nil {
+		return fiber.NewError(503, "follow unavailable")
+	}
+	if err = s.follows.Create(c.UserContext(), &model.Follow{FollowerID: followerID, AuthorID: authorID}); err != nil {
+		return err
+	}
+	count, _ := s.follows.Count(c.UserContext(), authorID)
+	return success(c, 200, fiber.Map{"following": true, "follower_count": count})
+}
+
+func (s *Server) unfollowAuthor(c *fiber.Ctx) error {
+	authorID, err := primitive.ObjectIDFromHex(c.Params("authorId"))
+	if err != nil {
+		return bad("INVALID_ID", "Invalid identifier")
+	}
+	if s.follows == nil {
+		return fiber.NewError(503, "follow unavailable")
+	}
+	if err = s.follows.Delete(c.UserContext(), c.Locals("user_id").(primitive.ObjectID), authorID); err != nil {
+		return err
+	}
+	count, _ := s.follows.Count(c.UserContext(), authorID)
+	return success(c, 200, fiber.Map{"following": false, "follower_count": count})
+}
+
+func (s *Server) updateAuthorProfile(c *fiber.Ctx) error {
+	var input struct {
+		Bio         string            `json:"bio"`
+		SocialLinks model.SocialLinks `json:"social_links"`
+	}
+	if err := c.BodyParser(&input); err != nil {
+		return bad("INVALID_REQUEST", "Invalid request")
+	}
+	input.Bio = strings.TrimSpace(input.Bio)
+	if len(input.Bio) > 320 {
+		return fiber.NewError(422, "bio must be 320 characters or fewer")
+	}
+	repo, ok := s.auth.Users.(repository.PublicAuthorRepository)
+	if !ok {
+		return fiber.NewError(503, "author profiles unavailable")
+	}
+	id := c.Locals("user_id").(primitive.ObjectID)
+	if err := repo.UpdateAuthorProfile(c.UserContext(), id, input.Bio, input.SocialLinks); err != nil {
+		return err
+	}
+	value, err := s.auth.Users.FindByID(c.UserContext(), id)
+	if err != nil {
+		return err
+	}
+	return success(c, 200, value)
+}

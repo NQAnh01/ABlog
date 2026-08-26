@@ -1,8 +1,10 @@
-import type { Category, Comment, Dashboard, Media, Page, Post, PostInput, PostVersion, Tag, User } from '../types'
+import type { AuthorPageData, Category, Comment, Dashboard, FollowState, Media, Page, Post, PostDraft, PostDraftResponse, PostInput, PostVersion, Reaction, ReactionType, Series, SeriesInput, SocialLinks, Tag, User } from '../types'
 
 const API_ORIGIN = import.meta.env.VITE_API_ORIGIN ?? (import.meta.env.DEV ? 'http://localhost:8088' : '')
 const API = `${API_ORIGIN}/api`
 let accessToken = ''
+let refreshRequest: Promise<boolean> | null = null
+const getCache = new Map<string, { expires: number; value?: unknown; pending?: Promise<unknown> }>()
 
 type Envelope<T> = { data: T; message: string }
 async function request<T>(path: string, options: RequestInit = {}, retry = true): Promise<T> {
@@ -11,10 +13,13 @@ async function request<T>(path: string, options: RequestInit = {}, retry = true)
   if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`)
   const response = await fetch(`${API}${path}`, { ...options, headers, credentials: 'include' })
   if (response.status === 401 && retry && path !== '/auth/refresh') {
-    const refreshed = await fetch(`${API}/auth/refresh`, { method: 'POST', credentials: 'include' })
-    if (refreshed.ok) {
+    refreshRequest ??= fetch(`${API}/auth/refresh`, { method: 'POST', credentials: 'include' }).then(async refreshed => {
+      if (!refreshed.ok) return false
       const value = await refreshed.json() as Envelope<{ access_token: string }>
       accessToken = value.data.access_token
+      return true
+    }).finally(() => { refreshRequest = null })
+    if (await refreshRequest) {
       return request<T>(path, options, false)
     }
   }
@@ -24,6 +29,26 @@ async function request<T>(path: string, options: RequestInit = {}, retry = true)
   }
   if (response.status === 204) return undefined as T
   return ((await response.json()) as Envelope<T>).data
+}
+
+function cachedGet<T>(path: string, ttl = 30_000): Promise<T> {
+  const now = Date.now()
+  const cached = getCache.get(path)
+  if (cached?.value !== undefined && cached.expires > now) return Promise.resolve(cached.value as T)
+  if (cached?.pending) return cached.pending as Promise<T>
+  const pending = request<T>(path).then(value => {
+    getCache.set(path, { value, expires: Date.now() + ttl })
+    return value
+  }).catch(error => {
+    getCache.delete(path)
+    throw error
+  })
+  getCache.set(path, { expires: now + ttl, pending })
+  return pending
+}
+
+function invalidatePublicPosts() {
+  for (const key of getCache.keys()) if (key === '/posts' || key.startsWith('/posts?') || key.startsWith('/posts/')) getCache.delete(key)
 }
 
 export const api = {
@@ -37,14 +62,18 @@ export const api = {
   updateProfile: (name: string, phone: string) => request<User>('/me/profile', { method: 'PUT', body: JSON.stringify({ name, phone }) }),
   uploadAvatar: (file: File) => { const form = new FormData(); form.append('file', file); return request<User>('/me/avatar', { method: 'POST', body: form }) },
   changePassword: (currentPassword: string, newPassword: string, confirmPassword: string) => request<void>('/me/password', { method: 'PUT', body: JSON.stringify({ current_password: currentPassword, new_password: newPassword, confirm_password: confirmPassword }) }),
-  posts: (query = '') => request<Page<Post>>(`/posts${query}`),
-  post: (slug: string) => request<Post>(`/posts/${slug}`),
+  posts: (query = '') => cachedGet<Page<Post>>(`/posts${query}`),
+  post: (slug: string) => cachedGet<Post>(`/posts/${slug}`),
+  prefetchPost: (slug: string) => { void cachedGet<Post>(`/posts/${slug}`, 60_000) },
   comments: (slug: string) => request<Comment[]>(`/posts/${slug}/comments`),
-  comment: (slug: string, content: string) => request<Comment>(`/posts/${slug}/comments`, { method: 'POST', body: JSON.stringify({ content }) }),
-  categories: () => request<Category[]>('/categories'),
-  tags: () => request<Tag[]>('/tags'),
-  category: (slug: string) => request<Category>(`/categories/${slug}`),
-  tag: (slug: string) => request<Tag>(`/tags/${slug}`),
+  comment: (slug: string, content: string, parentId = '', mentionIds: string[] = []) => request<Comment>(`/posts/${slug}/comments`, { method: 'POST', body: JSON.stringify({ content, parent_id: parentId, mention_ids: mentionIds }) }),
+  reactToPost: (slug: string, type: ReactionType) => request<Reaction[]>(`/posts/${slug}/reaction`, { method:'PUT', body:JSON.stringify({type}) }).then(value=>{getCache.delete(`/posts/${slug}`);return value}),
+  reactToComment: (id: string, type: ReactionType) => request<Reaction[]>(`/comments/${id}/reaction`, { method:'PUT', body:JSON.stringify({type}) }),
+  pinComment: (id: string, pinned: boolean) => request<{id:string;is_pinned:boolean}>(`/comments/${id}/pin`, { method:'PUT', body:JSON.stringify({pinned}) }),
+  categories: () => cachedGet<Category[]>('/categories', 300_000),
+  tags: () => cachedGet<Tag[]>('/tags', 300_000),
+  category: (slug: string) => cachedGet<Category>(`/categories/${slug}`, 300_000),
+  tag: (slug: string) => cachedGet<Tag>(`/tags/${slug}`, 300_000),
   createCategory: (input: Pick<Category, 'name' | 'slug' | 'description'>) => request<Category>('/me/categories', { method: 'POST', body: JSON.stringify(input) }),
   updateCategory: (id: string, input: Pick<Category, 'name' | 'slug' | 'description'>) => request<Category>(`/me/categories/${id}`, { method: 'PUT', body: JSON.stringify(input) }),
   createTag: (input: Pick<Tag, 'name' | 'slug'>) => request<Tag>('/me/tags', { method: 'POST', body: JSON.stringify(input) }),
@@ -53,9 +82,12 @@ export const api = {
   myPosts: (query = '') => request<Page<Post>>(`/me/posts${query}`),
   myPost: (id: string) => request<Post>(`/me/posts/${id}`),
   postVersions: (id: string) => request<PostVersion[]>(`/me/posts/${id}/versions`),
-  createPost: (input: PostInput) => request<Post>('/me/posts', { method: 'POST', body: JSON.stringify(input) }),
-  updatePost: (id: string, input: PostInput) => request<Post>(`/me/posts/${id}`, { method: 'PUT', body: JSON.stringify(input) }),
-  deletePost: (id: string) => request<void>(`/me/posts/${id}`, { method: 'DELETE' }),
+  postDraft: (id: string) => request<PostDraftResponse | undefined>(`/me/posts/${id}/draft`),
+  savePostDraft: (id: string, draft: PostDraft) => request<{ accepted: boolean; sequence: number; updated_at: string }>(`/me/posts/${id}/draft`, { method: 'PUT', body: JSON.stringify(draft) }),
+  deletePostDraft: (id: string) => request<void>(`/me/posts/${id}/draft`, { method: 'DELETE' }),
+  createPost: (input: PostInput) => request<Post>('/me/posts', { method: 'POST', body: JSON.stringify(input) }).then(value => { invalidatePublicPosts(); return value }),
+  updatePost: (id: string, input: PostInput) => request<Post>(`/me/posts/${id}`, { method: 'PUT', body: JSON.stringify(input) }).then(value => { invalidatePublicPosts(); return value }),
+  deletePost: (id: string) => request<void>(`/me/posts/${id}`, { method: 'DELETE' }).then(value => { invalidatePublicPosts(); return value }),
   uploadImage: (file: File) => { const form = new FormData(); form.append('file', file); return request<Media>('/me/uploads', { method: 'POST', body: form }) },
   dashboard: () => request<Dashboard>('/admin/dashboard'),
   adminComments: () => request<Comment[]>('/admin/comments'),
@@ -64,4 +96,19 @@ export const api = {
   bookmarks: () => request<{ post_ids: string[]; posts: Post[] }>('/me/bookmarks'),
   addBookmark: (postId: string) => request<void>(`/me/bookmarks/${postId}`, { method: 'PUT' }),
   removeBookmark: (postId: string) => request<void>(`/me/bookmarks/${postId}`, { method: 'DELETE' }),
+  series: (featured=false) => cachedGet<Series[]>(`/series${featured?'?featured=true':''}`,60_000),
+  seriesBySlug: (slug:string) => cachedGet<Series>(`/series/${slug}`,60_000),
+  postSeries: (slug:string) => request<Series|undefined>(`/posts/${slug}/series`),
+  mySeries: () => request<Series[]>('/me/series'),
+  mySeriesById: (id:string) => request<Series>(`/me/series/${id}`),
+  saveSeries: (input:SeriesInput,id='') => request<Series>(`/me/series${id?`/${id}`:''}`,{method:id?'PUT':'POST',body:JSON.stringify(input)}).then(value=>{getCache.delete('/series');getCache.delete('/series?featured=true');return value}),
+  deleteSeries: (id:string) => request<void>(`/me/series/${id}`,{method:'DELETE'}),
+  setSeriesPosts: (id:string,postIds:string[]) => request<void>(`/me/series/${id}/posts`,{method:'PUT',body:JSON.stringify({post_ids:postIds})}),
+  author: (username:string) => cachedGet<AuthorPageData>(`/authors/${encodeURIComponent(username)}`,30_000),
+  authorFollow: (username:string) => request<FollowState>(`/authors/${encodeURIComponent(username)}/follow`),
+  followAuthor: (authorId:string) => request<FollowState>(`/me/authors/${authorId}/follow`,{method:'PUT'}),
+  unfollowAuthor: (authorId:string) => request<FollowState>(`/me/authors/${authorId}/follow`,{method:'DELETE'}),
+  updateAuthorProfile: (bio:string,socialLinks:SocialLinks) => request<User>('/me/author-profile',{method:'PUT',body:JSON.stringify({bio,social_links:socialLinks})}),
+  recommendations: (postSlug:string,recent:string[]) => request<Post[]>(`/recommendations?post=${encodeURIComponent(postSlug)}&exclude=${encodeURIComponent(recent.join(','))}`),
+  personalRecommendations: (recent:string[]) => request<Post[]>(`/me/recommendations?exclude=${encodeURIComponent(recent.join(','))}`),
 }

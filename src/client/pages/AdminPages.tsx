@@ -5,7 +5,8 @@ import { MarkdownEditor } from '../components/MarkdownEditor'
 import { useAuth } from '../hooks/useAuth'
 import { api } from '../services/api'
 import { useToast } from '../hooks/useToast'
-import type { Category, Comment, Dashboard, Media, Post, PostInput, PostVersion, Tag } from '../types'
+import { createAutosaveController, localDraftKey, newestRestorableDraft, readLocalDraft } from '../autosave.mjs'
+import type { Category, Comment, Dashboard, Media, Post, PostDraft, PostInput, PostVersion, Tag } from '../types'
 
 function AdminGuard({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth()
@@ -55,7 +56,7 @@ export function AdminPostsPage() {
   </section></Layout></AdminGuard>
 }
 
-const emptyPost: PostInput = { title: '', slug: '', excerpt: '', content: '', status: 'private', category_ids: [], tag_ids: [] }
+const emptyPost: PostInput = { title: '', slug: '', excerpt: '', content: '', status: 'private', category_ids: [], tag_ids: [], is_featured: false, is_pinned_on_profile:false }
 function makeSlug(value: string) { return value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') }
 
 function TagSelector({ tags, selected, onTagsChange, onSelectedChange, onError }: { tags: Tag[]; selected: string[]; onTagsChange: (tags: Tag[]) => void; onSelectedChange: (ids: string[]) => void; onError: (message: string) => void }) {
@@ -122,20 +123,48 @@ export function PostEditorPage() {
   const [tags, setTags] = useState<Tag[]>([])
   const [loading, setLoading] = useState(editing)
   const [saving, setSaving] = useState(false)
+  const [autosaveStatus, setAutosaveStatus] = useState<'saving' | 'saved' | 'offline'>('saved')
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState('')
   const [slugTouched, setSlugTouched] = useState(false)
   const [addingTaxonomy, setAddingTaxonomy] = useState<'category' | 'tag' | null>(null)
   const [taxonomyName, setTaxonomyName] = useState('')
   const [taxonomyBusy, setTaxonomyBusy] = useState(false)
+  const autosave = useRef<ReturnType<typeof createAutosaveController> | null>(null)
+  const editorReady = useRef(false)
+  const baseline = useRef('')
+  const draftKey = localDraftKey(id)
   const words = useMemo(() => form.content.trim() ? form.content.trim().split(/\s+/).length : 0, [form.content])
 
   useEffect(() => {
-    Promise.all([api.categories(), api.tags(), ...(id ? [api.myPost(id)] : [])]).then(([categoryData, tagData, post]) => {
+    Promise.all([api.categories(), api.tags(), ...(id ? [api.myPost(id), api.postDraft(id)] : [])]).then(([categoryData, tagData, post, serverDraft]) => {
       setCategories((categoryData as Category[]) ?? []); setTags((tagData as Tag[]) ?? [])
-      if (post) { const value = post as Post; setForm({ title: value.title, slug: value.slug, excerpt: value.excerpt ?? '', content: value.content, status: value.status, thumbnail: value.thumbnail, category_ids: value.category_ids ?? [], tag_ids: value.tag_ids ?? [] }); setSlugTouched(true) }
+      const saved = post ? (() => { const value=post as Post; return { title:value.title,slug:value.slug,excerpt:value.excerpt??'',content:value.content,status:value.status,thumbnail:value.thumbnail,category_ids:value.category_ids??[],tag_ids:value.tag_ids??[],is_featured:value.is_featured??false,is_pinned_on_profile:value.is_pinned_on_profile??false } as PostInput })() : emptyPost
+      const localDraft = readLocalDraft(localStorage, draftKey)
+      const remoteDraft = (serverDraft as { draft?: PostDraft } | undefined)?.draft
+      const restore = newestRestorableDraft(remoteDraft, localDraft, (post as Post | undefined)?.updated_at)
+      let initial = saved
+      if (restore && window.confirm('A newer autosaved draft was found. Restore it?')) initial = { title:restore.title,slug:restore.slug,excerpt:restore.excerpt,content:restore.content,status:restore.status,thumbnail:restore.thumbnail,category_ids:restore.category_ids??[],tag_ids:restore.tag_ids??[],is_featured:restore.is_featured??false,is_pinned_on_profile:restore.is_pinned_on_profile??false }
+      else if (restore) { localStorage.removeItem(draftKey); if(id)void api.deletePostDraft(id) }
+      setForm(initial); baseline.current=JSON.stringify(initial); setSlugTouched(Boolean(post)); editorReady.current=true
     }).catch(err => setError(err instanceof Error ? err.message : 'Unable to prepare the editor')).finally(() => setLoading(false))
-  }, [id])
+  }, [id, draftKey])
+
+  useEffect(() => {
+    const storage = id ? localStorage : { getItem:(key:string)=>localStorage.getItem(key),setItem:(key:string,value:string)=>localStorage.setItem(key,value),removeItem:()=>{} } as unknown as Storage
+    autosave.current = createAutosaveController({ save: (draft:PostDraft) => id ? api.savePostDraft(id, draft) : Promise.resolve({ accepted:true }), storage, key:draftKey, onStatus:setAutosaveStatus, online:()=>id ? navigator.onLine : true })
+    const retry = () => autosave.current?.retry()
+    const warn = (event: BeforeUnloadEvent) => { if(autosave.current?.isDirty()){event.preventDefault();event.returnValue=''} }
+    window.addEventListener('online',retry);window.addEventListener('beforeunload',warn)
+    return()=>{autosave.current?.dispose();window.removeEventListener('online',retry);window.removeEventListener('beforeunload',warn)}
+  }, [id,draftKey])
+
+  useEffect(() => {
+    if(!editorReady.current)return
+    const serialized=JSON.stringify(form)
+    if(serialized===baseline.current)return
+    autosave.current?.schedule(form)
+  }, [form])
 
   function set<K extends keyof PostInput>(key: K, value: PostInput[K]) { setForm(current => ({ ...current, [key]: value })) }
   function toggle(key: 'category_ids' | 'tag_ids', value: string) { setForm(current => ({ ...current, [key]: current[key].includes(value) ? current[key].filter(id => id !== value) : [...current[key], value] })) }
@@ -151,8 +180,11 @@ export function PostEditorPage() {
   async function save() {
     setSaving(true); setError('')
     try {
+      await autosave.current?.flush()
+      await autosave.current?.waitForIdle()
       const payload = { ...form, slug: form.slug || makeSlug(form.title) }
       const saved = id ? await api.updatePost(id, payload) : await api.createPost(payload)
+      autosave.current?.clear(); localStorage.removeItem(draftKey); if(id)await api.deletePostDraft(id)
       toast(id ? 'Story updated successfully.' : 'Story saved successfully.')
       navigate(saved.status === 'public' ? `/blog/${saved.slug}` : `/stories/${saved.id}/preview`, { replace: true })
     } catch (err) { setError(err instanceof Error ? err.message : 'Unable to save story') }
@@ -188,7 +220,7 @@ export function PostEditorPage() {
   function submit(event: FormEvent) { event.preventDefault(); void save() }
   if (loading) return <AdminGuard><Layout><Loading /></Layout></AdminGuard>
 
-  return <AdminGuard><Layout><><section className="post-editor-page container"><header className="editor-topbar"><div><Link to="/admin/posts">← &nbsp;All stories</Link><span>{editing ? 'EDITING STORY' : 'NEW STORY'}</span></div><div>{id&&<Link className="history-link" to={`/admin/posts/${id}/versions`}>Version history</Link>}<span className="save-state">{saving ? 'Saving…' : `${words} words`}</span><button className="button" disabled={saving} onClick={() => void save()}>Save story</button></div></header>
+  return <AdminGuard><Layout><><section className="post-editor-page container"><header className="editor-topbar"><div><Link to="/admin/posts">← &nbsp;All stories</Link><span>{editing ? 'EDITING STORY' : 'NEW STORY'}</span></div><div>{id&&<Link className="history-link" to={`/admin/posts/${id}/versions`}>Version history</Link>}<label className="featured-toggle" title="Pin this story on your public author page"><input type="checkbox" checked={form.is_pinned_on_profile??false} onChange={event=>set('is_pinned_on_profile',event.target.checked)}/><span>Profile pin</span></label><label className="featured-toggle" title="Show this story in the homepage hero"><input type="checkbox" checked={form.is_featured??false} onChange={event=>set('is_featured',event.target.checked)}/><span>Featured</span></label><span className={`autosave-state ${autosaveStatus}`}><i/>{autosaveStatus==='saving'?'Saving…':autosaveStatus==='offline'?'Offline':'Saved'}</span><span className="save-state">{saving ? 'Saving…' : `${words} words`}</span><button className="button" disabled={saving} onClick={() => void save()}>Save story</button></div></header>
     {error && <div className="admin-alert">{error}<button onClick={() => setError('')}>×</button></div>}
     <form className="post-editor" onSubmit={submit}><div className="editor-main"><label className="editor-title"><span>Story title</span><textarea value={form.title} maxLength={180} onChange={event => { const title = event.target.value; set('title', title); if (!slugTouched) set('slug', makeSlug(title)) }} placeholder="Give your story a thoughtful title" required /></label><label className="editor-slug"><span>lumina.blog/blog/</span><input value={form.slug} onChange={event => { setSlugTouched(true); set('slug', makeSlug(event.target.value)) }} placeholder="story-slug" /></label><label className="editor-excerpt"><span>Excerpt <small>{form.excerpt.length}/320</small></span><textarea value={form.excerpt} maxLength={320} onChange={event => set('excerpt', event.target.value)} placeholder="A concise invitation into the story…" /></label><div className="editor-content"><span>Story</span><MarkdownEditor value={form.content} onChange={value => set('content', value)} onError={setError} /></div></div>
       <aside className="editor-sidebar"><section><div className="sidebar-heading"><span>Cover image</span>{form.thumbnail && <button type="button" onClick={() => set('thumbnail', undefined)}>Remove</button>}</div><label className={`cover-upload ${form.thumbnail ? 'has-image' : ''}`}>{form.thumbnail ? <img src={form.thumbnail.url} alt="Story cover preview" /> : <><b>{uploading ? 'Uploading…' : '＋'}</b><strong>Upload a cover</strong><small>JPEG, PNG or WebP · max 5 MB</small></>}<input type="file" accept="image/jpeg,image/png,image/webp" disabled={uploading} onChange={event => void upload(event.target.files?.[0])} /></label></section><section><div className="sidebar-heading"><span>Category</span><button type="button" aria-label="Add category" onClick={() => { setAddingTaxonomy('category'); setTaxonomyName('') }}>＋</button></div>{addingTaxonomy === 'category' && <input className="inline-taxonomy-input" autoFocus value={taxonomyName} disabled={taxonomyBusy} onChange={event => setTaxonomyName(event.target.value)} onKeyDown={event => taxonomyKeyDown(event, 'category')} onBlur={() => !taxonomyBusy && !taxonomyName.trim() && setAddingTaxonomy(null)} placeholder="Name, then press Enter" />}<div className="editor-options category-options">{categories.map(category => <label key={category.id}><input type="checkbox" checked={form.category_ids.includes(category.id)} onChange={() => toggle('category_ids', category.id)} /><span>{category.name}</span></label>)}</div></section><TagSelector tags={tags} selected={form.tag_ids} onTagsChange={setTags} onSelectedChange={ids => set('tag_ids', ids)} onError={setError}/><section className="publish-note"><span>Visibility</span><div className="editor-options"><label><input type="radio" name="visibility" checked={form.status === 'private'} onChange={() => set('status', 'private')} /><span>Private — only you can see it</span></label><label><input type="radio" name="visibility" checked={form.status === 'public'} onChange={() => set('status', 'public')} /><span>Public — everyone can see it</span></label></div></section></aside>

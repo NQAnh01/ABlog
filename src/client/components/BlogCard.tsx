@@ -1,12 +1,7 @@
 import { Link, useNavigate } from 'react-router-dom'
 import { useBookmarks } from '../hooks/useBookmarks'
+import { api } from '../services/api'
 import type { Post } from '../types'
-
-function readingTime(content: string) {
-  const words = content.trim().split(/\s+/).length
-  const minutes = Math.max(1, Math.ceil(words / 200))
-  return `${minutes} min read`
-}
 
 function timeAgo(dateStr?: string) {
   if (!dateStr) return ''
@@ -42,9 +37,9 @@ export function BlogCard({ post }: { post: Post }) {
 
   const published = timeAgo(post.published_at ?? post.created_at)
 
-  return <article className="blog-card"><Link to={`/blog/${post.slug}`}>
-    <div className={`card-image${post.thumbnail ? '' : ' card-image-placeholder'}`}>{post.thumbnail ? <img src={post.thumbnail.url} alt=""/> : <span>L</span>}</div>
-    <div className="card-copy"><div className="card-meta"><span>{post.author?.name ?? 'Lumina'}</span><i/><span>{readingTime(post.content)}</span>{published && <><i/><span>{published}</span></>}</div>
+  return <article className="blog-card"><Link to={`/blog/${post.slug}`} onPointerEnter={() => api.prefetchPost(post.slug)} onFocus={() => api.prefetchPost(post.slug)}>
+    <div className={`card-image${post.thumbnail ? '' : ' card-image-placeholder'}`}>{post.thumbnail ? <img src={post.thumbnail.url} alt="" loading="lazy" decoding="async"/> : <span>L</span>}</div>
+    <div className="card-copy"><div className="card-meta"><span>{post.author?.name ?? 'Lumina'}</span>{published && <><i/><span>{published}</span></>}</div>
     <h2>{post.title}</h2><p>{post.excerpt}</p><span className="card-read">Read story <i>→</i></span></div>
   </Link><button className={`bookmark-btn${saved ? ' bookmarked' : ''}`} type="button" onClick={handleBookmark} aria-label={saved ? 'Remove from saved' : 'Save story'} title={saved ? 'Remove from saved' : 'Save story'}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg></button></article>
 }

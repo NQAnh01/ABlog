@@ -19,7 +19,9 @@ type Repositories struct {
 	Sessions       *Sessions
 	Taxonomy       *Taxonomy
 	Bookmarks      *Bookmarks
+	Follows        *Follows
 	PasswordResets *PasswordResets
+	Series         *Series
 	DB             *mongo.Database
 }
 
@@ -32,28 +34,74 @@ func New(ctx context.Context, uri, name string) (*mongo.Client, *Repositories, e
 		return nil, nil, e
 	}
 	db := c.Database(name)
-	r := &Repositories{Users: &Users{db.Collection("users")}, Posts: &Posts{db.Collection("posts")}, Versions: &PostVersions{db.Collection("post_versions")}, Comments: &Comments{db.Collection("comments")}, Sessions: &Sessions{db.Collection("refresh_sessions")}, Taxonomy: &Taxonomy{categories: db.Collection("categories"), tags: db.Collection("tags")}, Bookmarks: &Bookmarks{db.Collection("bookmarks")}, PasswordResets: &PasswordResets{db.Collection("password_resets")}, DB: db}
+	r := &Repositories{Users: &Users{db.Collection("users")}, Posts: &Posts{db.Collection("posts")}, Versions: &PostVersions{db.Collection("post_versions")}, Comments: &Comments{db.Collection("comments")}, Sessions: &Sessions{db.Collection("refresh_sessions")}, Taxonomy: &Taxonomy{categories: db.Collection("categories"), tags: db.Collection("tags")}, Bookmarks: &Bookmarks{db.Collection("bookmarks")}, Follows: &Follows{db.Collection("follows")}, PasswordResets: &PasswordResets{db.Collection("password_resets")}, Series: &Series{series: db.Collection("series"), posts: db.Collection("series_posts")}, DB: db}
+	if e = migrateAuthorUsernames(ctx, db.Collection("users")); e != nil {
+		return nil, nil, e
+	}
 	if e = r.indexes(ctx); e != nil {
 		return nil, nil, e
 	}
 	return c, r, nil
 }
 func (r *Repositories) indexes(ctx context.Context) error {
-	spec := map[string][]mongo.IndexModel{"users": {{Keys: bson.D{{Key: "email", Value: 1}}, Options: options.Index().SetUnique(true)}}, "posts": {{Keys: bson.D{{Key: "slug", Value: 1}}, Options: options.Index().SetUnique(true)}, {Keys: bson.D{{Key: "status", Value: 1}, {Key: "published_at", Value: -1}}}, {Keys: bson.D{{Key: "author_id", Value: 1}}}}, "post_versions": {{Keys: bson.D{{Key: "post_id", Value: 1}, {Key: "number", Value: -1}}, Options: options.Index().SetUnique(true)}}, "comments": {{Keys: bson.D{{Key: "post_id", Value: 1}, {Key: "created_at", Value: 1}}}}, "categories": {{Keys: bson.D{{Key: "slug", Value: 1}}, Options: options.Index().SetUnique(true)}}, "tags": {{Keys: bson.D{{Key: "slug", Value: 1}}, Options: options.Index().SetUnique(true)}}, "refresh_sessions": {{Keys: bson.D{{Key: "token_hash", Value: 1}}, Options: options.Index().SetUnique(true)}, {Keys: bson.D{{Key: "expires_at", Value: 1}}, Options: options.Index().SetExpireAfterSeconds(0)}}, "bookmarks": {{Keys: bson.D{{Key: "user_id", Value: 1}, {Key: "post_id", Value: 1}}, Options: options.Index().SetUnique(true)}}, "password_resets": {{Keys: bson.D{{Key: "token_hash", Value: 1}}, Options: options.Index().SetUnique(true)}, {Keys: bson.D{{Key: "expires_at", Value: 1}}, Options: options.Index().SetExpireAfterSeconds(0)}}}
+	spec := map[string][]mongo.IndexModel{"users": {{Keys: bson.D{{Key: "email", Value: 1}}, Options: options.Index().SetUnique(true)}, {Keys: bson.D{{Key: "username", Value: 1}}, Options: options.Index().SetUnique(true)}}, "posts": {{Keys: bson.D{{Key: "slug", Value: 1}}, Options: options.Index().SetUnique(true)}, {Keys: bson.D{{Key: "status", Value: 1}, {Key: "published_at", Value: -1}}}, {Keys: bson.D{{Key: "author_id", Value: 1}, {Key: "published_at", Value: -1}}}, {Keys: bson.D{{Key: "tag_ids", Value: 1}, {Key: "status", Value: 1}, {Key: "published_at", Value: -1}}}, {Keys: bson.D{{Key: "category_ids", Value: 1}, {Key: "status", Value: 1}, {Key: "published_at", Value: -1}}}}, "post_versions": {{Keys: bson.D{{Key: "post_id", Value: 1}, {Key: "number", Value: -1}}, Options: options.Index().SetUnique(true)}}, "comments": {{Keys: bson.D{{Key: "post_id", Value: 1}, {Key: "created_at", Value: 1}}}}, "categories": {{Keys: bson.D{{Key: "slug", Value: 1}}, Options: options.Index().SetUnique(true)}}, "tags": {{Keys: bson.D{{Key: "slug", Value: 1}}, Options: options.Index().SetUnique(true)}}, "refresh_sessions": {{Keys: bson.D{{Key: "token_hash", Value: 1}}, Options: options.Index().SetUnique(true)}, {Keys: bson.D{{Key: "expires_at", Value: 1}}, Options: options.Index().SetExpireAfterSeconds(0)}}, "bookmarks": {{Keys: bson.D{{Key: "user_id", Value: 1}, {Key: "post_id", Value: 1}}, Options: options.Index().SetUnique(true)}}, "follows": {{Keys: bson.D{{Key: "follower_id", Value: 1}, {Key: "author_id", Value: 1}}, Options: options.Index().SetUnique(true)}, {Keys: bson.D{{Key: "author_id", Value: 1}}}}, "password_resets": {{Keys: bson.D{{Key: "token_hash", Value: 1}}, Options: options.Index().SetUnique(true)}, {Keys: bson.D{{Key: "expires_at", Value: 1}}, Options: options.Index().SetExpireAfterSeconds(0)}}}
 	for n, idx := range spec {
 		if _, e := r.DB.Collection(n).Indexes().CreateMany(ctx, idx); e != nil {
 			return e
 		}
+	}
+	if _, e := r.DB.Collection("series").Indexes().CreateOne(ctx, mongo.IndexModel{Keys: bson.D{{Key: "slug", Value: 1}}, Options: options.Index().SetUnique(true)}); e != nil {
+		return e
+	}
+	if _, e := r.DB.Collection("series_posts").Indexes().CreateMany(ctx, []mongo.IndexModel{
+		{Keys: bson.D{{Key: "post_id", Value: 1}}, Options: options.Index().SetUnique(true)},
+		{Keys: bson.D{{Key: "series_id", Value: 1}, {Key: "order", Value: 1}}, Options: options.Index().SetUnique(true)},
+	}); e != nil {
+		return e
 	}
 	return nil
 }
 
 type Users struct{ c *mongo.Collection }
 
+func migrateAuthorUsernames(ctx context.Context, users *mongo.Collection) error {
+	cursor, err := users.Find(ctx, bson.M{"$or": []bson.M{{"username": bson.M{"$exists": false}}, {"username": ""}}}, options.Find().SetProjection(bson.M{"_id": 1}))
+	if err != nil {
+		return err
+	}
+	defer cursor.Close(ctx)
+	for cursor.Next(ctx) {
+		var value struct {
+			ID primitive.ObjectID `bson:"_id"`
+		}
+		if err = cursor.Decode(&value); err != nil {
+			return err
+		}
+		if _, err = users.UpdateByID(ctx, value.ID, bson.M{"$set": bson.M{"username": "author-" + value.ID.Hex()}}); err != nil {
+			return err
+		}
+	}
+	return cursor.Err()
+}
+
 func (r *Users) Create(ctx context.Context, v *model.User) error {
-	v.ID = primitive.NewObjectID()
+	if v.ID.IsZero() {
+		v.ID = primitive.NewObjectID()
+	}
+	if v.Username == "" {
+		v.Username = "author-" + v.ID.Hex()
+	}
 	_, e := r.c.InsertOne(ctx, v)
 	return e
+}
+func (r *Users) FindByUsername(ctx context.Context, username string) (*model.User, error) {
+	var value model.User
+	err := r.c.FindOne(ctx, bson.M{"username": username}).Decode(&value)
+	return &value, err
+}
+func (r *Users) UpdateAuthorProfile(ctx context.Context, id primitive.ObjectID, bio string, social model.SocialLinks) error {
+	_, err := r.c.UpdateByID(ctx, id, bson.M{"$set": bson.M{"bio": bio, "social_links": social, "updated_at": time.Now().UTC()}})
+	return err
 }
 func (r *Users) FindByEmail(ctx context.Context, email string) (*model.User, error) {
 	var v model.User
@@ -64,6 +112,19 @@ func (r *Users) FindByID(ctx context.Context, id primitive.ObjectID) (*model.Use
 	var v model.User
 	e := r.c.FindOne(ctx, bson.M{"_id": id}).Decode(&v)
 	return &v, e
+}
+func (r *Users) FindByIDs(ctx context.Context, ids []primitive.ObjectID) ([]model.User, error) {
+	if len(ids) == 0 {
+		return []model.User{}, nil
+	}
+	cursor, err := r.c.Find(ctx, bson.M{"_id": bson.M{"$in": ids}})
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+	var values []model.User
+	err = cursor.All(ctx, &values)
+	return values, err
 }
 func (r *Users) UpdateProfile(ctx context.Context, id primitive.ObjectID, name, phone string) error {
 	_, e := r.c.UpdateByID(ctx, id, bson.M{"$set": bson.M{"name": name, "phone": phone, "updated_at": time.Now().UTC()}})
@@ -91,6 +152,11 @@ func (r *Posts) FindPublicByIDs(ctx context.Context, ids []primitive.ObjectID) (
 	defer cur.Close(ctx)
 	var posts []model.Post
 	err = cur.All(ctx, &posts)
+	for i := range posts {
+		if posts[i].Status == "published" {
+			posts[i].Status = "public"
+		}
+	}
 	return posts, err
 }
 
@@ -108,6 +174,9 @@ func (r *Posts) List(ctx context.Context, f repository.PostFilter) ([]model.Post
 	}
 	if !f.AuthorID.IsZero() {
 		q["author_id"] = f.AuthorID
+	}
+	if f.FeaturedOnly {
+		q["is_featured"] = true
 	}
 	if f.Search != "" {
 		q["$or"] = []bson.M{{"title": bson.M{"$regex": f.Search, "$options": "i"}}, {"excerpt": bson.M{"$regex": f.Search, "$options": "i"}}}
@@ -178,6 +247,27 @@ func (r *Posts) FindByID(ctx context.Context, id primitive.ObjectID) (*model.Pos
 	}
 	return &v, e
 }
+func (r *Posts) GetDraft(ctx context.Context, id primitive.ObjectID) (*model.PostDraft, error) {
+	var value struct {
+		Draft *model.PostDraft `bson:"autosave"`
+	}
+	err := r.c.FindOne(ctx, bson.M{"_id": id}, options.FindOne().SetProjection(bson.M{"autosave": 1})).Decode(&value)
+	if err != nil {
+		return nil, err
+	}
+	if value.Draft == nil {
+		return nil, mongo.ErrNoDocuments
+	}
+	return value.Draft, nil
+}
+func (r *Posts) SaveDraft(ctx context.Context, id primitive.ObjectID, draft *model.PostDraft) (bool, error) {
+	result, err := r.c.UpdateOne(ctx, bson.M{"_id": id, "$or": []bson.M{{"autosave": bson.M{"$exists": false}}, {"autosave.sequence": bson.M{"$lt": draft.Sequence}}}}, bson.M{"$set": bson.M{"autosave": draft}})
+	return result != nil && result.ModifiedCount == 1, err
+}
+func (r *Posts) DeleteDraft(ctx context.Context, id primitive.ObjectID) error {
+	_, err := r.c.UpdateByID(ctx, id, bson.M{"$unset": bson.M{"autosave": ""}})
+	return err
+}
 func (r *Posts) Create(ctx context.Context, v *model.Post) error {
 	v.ID = primitive.NewObjectID()
 	_, e := r.c.InsertOne(ctx, v)
@@ -190,6 +280,25 @@ func (r *Posts) Update(ctx context.Context, v *model.Post) error {
 func (r *Posts) Delete(ctx context.Context, id primitive.ObjectID) error {
 	_, e := r.c.DeleteOne(ctx, bson.M{"_id": id})
 	return e
+}
+func reactionPipeline(userID primitive.ObjectID, reactionType string) mongo.Pipeline {
+	matching := bson.M{"$filter": bson.M{"input": "$$existing", "as": "reaction", "cond": bson.M{"$eq": bson.A{"$$reaction.user_id", userID}}}}
+	filtered := bson.M{"$filter": bson.M{"input": "$$existing", "as": "reaction", "cond": bson.M{"$ne": bson.A{"$$reaction.user_id", userID}}}}
+	toggled := bson.M{"$let": bson.M{
+		"vars": bson.M{"current": bson.M{"$arrayElemAt": bson.A{matching, 0}}, "filtered": filtered},
+		"in": bson.M{"$cond": bson.A{
+			bson.M{"$eq": bson.A{"$$current.type", reactionType}},
+			"$$filtered",
+			bson.M{"$concatArrays": bson.A{"$$filtered", bson.A{model.Reaction{UserID: userID, Type: reactionType}}}},
+		}},
+	}}
+	value := bson.M{"$let": bson.M{"vars": bson.M{"existing": bson.M{"$ifNull": bson.A{"$reactions", bson.A{}}}}, "in": toggled}}
+	return mongo.Pipeline{bson.D{{Key: "$set", Value: bson.M{"reactions": value}}}}
+}
+func (r *Posts) TogglePostReaction(ctx context.Context, id, userID primitive.ObjectID, reactionType string) (*model.Post, error) {
+	var value model.Post
+	err := r.c.FindOneAndUpdate(ctx, bson.M{"_id": id}, reactionPipeline(userID, reactionType), options.FindOneAndUpdate().SetReturnDocument(options.After)).Decode(&value)
+	return &value, err
 }
 
 type PostVersions struct{ c *mongo.Collection }
@@ -254,6 +363,21 @@ func (r *Comments) Delete(ctx context.Context, id primitive.ObjectID) error {
 	_, e := r.c.DeleteOne(ctx, bson.M{"_id": id})
 	return e
 }
+func (r *Comments) ToggleCommentReaction(ctx context.Context, id, userID primitive.ObjectID, reactionType string) (*model.Comment, error) {
+	var value model.Comment
+	err := r.c.FindOneAndUpdate(ctx, bson.M{"_id": id}, reactionPipeline(userID, reactionType), options.FindOneAndUpdate().SetReturnDocument(options.After)).Decode(&value)
+	return &value, err
+}
+func (r *Comments) PinComment(ctx context.Context, postID, commentID primitive.ObjectID, pinned bool) error {
+	if _, err := r.c.UpdateMany(ctx, bson.M{"post_id": postID, "is_pinned": true}, bson.M{"$set": bson.M{"is_pinned": false}}); err != nil {
+		return err
+	}
+	if pinned {
+		_, err := r.c.UpdateOne(ctx, bson.M{"_id": commentID, "post_id": postID}, bson.M{"$set": bson.M{"is_pinned": true}})
+		return err
+	}
+	return nil
+}
 
 type Sessions struct{ c *mongo.Collection }
 
@@ -274,6 +398,93 @@ func (r *Sessions) DeleteByHash(ctx context.Context, h string) error {
 func (r *Sessions) DeleteByUser(ctx context.Context, id primitive.ObjectID) error {
 	_, e := r.c.DeleteMany(ctx, bson.M{"user_id": id})
 	return e
+}
+
+type Series struct{ series, posts *mongo.Collection }
+
+func (r *Series) Create(ctx context.Context, value *model.Series) error {
+	if value.ID.IsZero() {
+		value.ID = primitive.NewObjectID()
+	}
+	_, err := r.series.InsertOne(ctx, value)
+	return err
+}
+func (r *Series) Update(ctx context.Context, value *model.Series) error {
+	_, err := r.series.ReplaceOne(ctx, bson.M{"_id": value.ID}, value)
+	return err
+}
+func (r *Series) Delete(ctx context.Context, id primitive.ObjectID) error {
+	if _, err := r.series.DeleteOne(ctx, bson.M{"_id": id}); err != nil {
+		return err
+	}
+	_, err := r.posts.DeleteMany(ctx, bson.M{"series_id": id})
+	return err
+}
+func (r *Series) FindByID(ctx context.Context, id primitive.ObjectID) (*model.Series, error) {
+	var value model.Series
+	err := r.series.FindOne(ctx, bson.M{"_id": id}).Decode(&value)
+	return &value, err
+}
+func (r *Series) FindBySlug(ctx context.Context, slug string) (*model.Series, error) {
+	var value model.Series
+	err := r.series.FindOne(ctx, bson.M{"slug": slug}).Decode(&value)
+	return &value, err
+}
+func (r *Series) List(ctx context.Context, authorID primitive.ObjectID, publicOnly, featuredOnly bool) ([]model.Series, error) {
+	query := bson.M{}
+	if !authorID.IsZero() {
+		query["author_id"] = authorID
+	}
+	if publicOnly {
+		query["status"] = "published"
+	}
+	if featuredOnly {
+		query["is_featured"] = true
+	}
+	cursor, err := r.series.Find(ctx, query, options.Find().SetSort(bson.D{{Key: "updated_at", Value: -1}}))
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+	var values []model.Series
+	err = cursor.All(ctx, &values)
+	return values, err
+}
+func (r *Series) ReplacePosts(ctx context.Context, seriesID primitive.ObjectID, postIDs []primitive.ObjectID) error {
+	if _, err := r.posts.DeleteMany(ctx, bson.M{"series_id": seriesID}); err != nil {
+		return err
+	}
+	if len(postIDs) == 0 {
+		return nil
+	}
+	if _, err := r.posts.DeleteMany(ctx, bson.M{"post_id": bson.M{"$in": postIDs}}); err != nil {
+		return err
+	}
+	values := make([]interface{}, len(postIDs))
+	for index, postID := range postIDs {
+		values[index] = model.SeriesPost{ID: primitive.NewObjectID(), SeriesID: seriesID, PostID: postID, Order: index + 1}
+	}
+	_, err := r.posts.InsertMany(ctx, values)
+	return err
+}
+func (r *Series) ListPosts(ctx context.Context, seriesID primitive.ObjectID) ([]model.SeriesPost, error) {
+	cursor, err := r.posts.Find(ctx, bson.M{"series_id": seriesID}, options.Find().SetSort(bson.D{{Key: "order", Value: 1}}))
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+	var values []model.SeriesPost
+	err = cursor.All(ctx, &values)
+	return values, err
+}
+func (r *Series) FindByPost(ctx context.Context, postID primitive.ObjectID) (*model.SeriesPost, error) {
+	var value model.SeriesPost
+	err := r.posts.FindOne(ctx, bson.M{"post_id": postID}).Decode(&value)
+	return &value, err
+}
+func (r *Series) RemovePost(ctx context.Context, seriesID, postID primitive.ObjectID) error {
+	_, err := r.posts.DeleteOne(ctx, bson.M{"series_id": seriesID, "post_id": postID})
+	return err
 }
 
 type Bookmarks struct{ c *mongo.Collection }
@@ -302,6 +513,42 @@ func (r *Bookmarks) Create(ctx context.Context, v *model.Bookmark) error {
 func (r *Bookmarks) Delete(ctx context.Context, userID, postID primitive.ObjectID) error {
 	_, err := r.c.DeleteOne(ctx, bson.M{"user_id": userID, "post_id": postID})
 	return err
+}
+
+type Follows struct{ c *mongo.Collection }
+
+func (r *Follows) Create(ctx context.Context, value *model.Follow) error {
+	value.ID = primitive.NewObjectID()
+	value.CreatedAt = time.Now().UTC()
+	_, err := r.c.UpdateOne(ctx, bson.M{"follower_id": value.FollowerID, "author_id": value.AuthorID}, bson.M{"$setOnInsert": value}, options.Update().SetUpsert(true))
+	return err
+}
+func (r *Follows) Delete(ctx context.Context, followerID, authorID primitive.ObjectID) error {
+	_, err := r.c.DeleteOne(ctx, bson.M{"follower_id": followerID, "author_id": authorID})
+	return err
+}
+func (r *Follows) Exists(ctx context.Context, followerID, authorID primitive.ObjectID) (bool, error) {
+	count, err := r.c.CountDocuments(ctx, bson.M{"follower_id": followerID, "author_id": authorID}, options.Count().SetLimit(1))
+	return count > 0, err
+}
+func (r *Follows) Count(ctx context.Context, authorID primitive.ObjectID) (int64, error) {
+	return r.c.CountDocuments(ctx, bson.M{"author_id": authorID})
+}
+func (r *Follows) ListAuthorIDs(ctx context.Context, followerID primitive.ObjectID) ([]primitive.ObjectID, error) {
+	cursor, err := r.c.Find(ctx, bson.M{"follower_id": followerID}, options.Find().SetProjection(bson.M{"author_id": 1}))
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+	var rows []model.Follow
+	if err = cursor.All(ctx, &rows); err != nil {
+		return nil, err
+	}
+	ids := make([]primitive.ObjectID, 0, len(rows))
+	for _, row := range rows {
+		ids = append(ids, row.AuthorID)
+	}
+	return ids, nil
 }
 
 type PasswordResets struct{ c *mongo.Collection }

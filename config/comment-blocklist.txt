@@ -1,0 +1,4 @@
+# One case-insensitive keyword or phrase per line.
+# Matching comments are flagged as pending for moderation, never deleted.
+spam-link
+buy followers

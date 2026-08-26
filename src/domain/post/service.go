@@ -44,7 +44,28 @@ func (s Service) Create(ctx context.Context, p *model.Post) error {
 	if p.Status == "public" && p.PublishedAt == nil {
 		p.PublishedAt = &now
 	}
+	if p.IsPinnedOnProfile {
+		if err := s.validateProfilePin(ctx, p.AuthorID, primitive.NilObjectID); err != nil {
+			return err
+		}
+	}
 	return s.Repo.Create(ctx, p)
+}
+func (s Service) validateProfilePin(ctx context.Context, authorID, excludeID primitive.ObjectID) error {
+	items, _, err := s.Repo.List(ctx, repository.PostFilter{AuthorID: authorID, Page: 1, Limit: 100})
+	if err != nil {
+		return err
+	}
+	count := 0
+	for _, item := range items {
+		if item.ID != excludeID && item.IsPinnedOnProfile {
+			count++
+		}
+	}
+	if count >= 2 {
+		return errors.New("an author can pin at most two stories")
+	}
+	return nil
 }
 func normalize(p *model.Post) error {
 	p.Title = strings.TrimSpace(p.Title)
@@ -83,6 +104,13 @@ func (s Service) Update(ctx context.Context, id primitive.ObjectID, input *model
 	p.Excerpt = input.Excerpt
 	p.Content = input.Content
 	p.Status = input.Status
+	p.IsFeatured = input.IsFeatured
+	if input.IsPinnedOnProfile && !p.IsPinnedOnProfile {
+		if err := s.validateProfilePin(ctx, p.AuthorID, p.ID); err != nil {
+			return err
+		}
+	}
+	p.IsPinnedOnProfile = input.IsPinnedOnProfile
 	p.Thumbnail = input.Thumbnail
 	p.CategoryIDs = input.CategoryIDs
 	p.TagIDs = input.TagIDs

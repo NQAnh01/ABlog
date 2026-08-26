@@ -413,14 +413,23 @@
   .story-search .advanced-filter-menu > .advanced-panel { top: 74px; }
 }
 
-/* Navigation motion and global scroll-to-top control. */
-.page-transition {
-  animation: page-enter 280ms cubic-bezier(.22, .8, .3, 1) both;
-}
+/* Keep route changes continuously visible; fading from opacity: 0 caused a flash. */
+.page-transition { min-height: 100vh; }
 
-@keyframes page-enter {
-  from { opacity: 0; }
-  to { opacity: 1; }
+.autosave-state{display:inline-flex;align-items:center;gap:7px;color:var(--muted);font-size:11px;font-weight:750;white-space:nowrap}.autosave-state i{width:7px;height:7px;border-radius:50%;background:#22a36a;box-shadow:0 0 0 4px rgba(34,163,106,.1)}.autosave-state.saving i{background:#818cf8;box-shadow:0 0 0 4px rgba(129,140,248,.11);animation:autosave-pulse 1s ease-in-out infinite}.autosave-state.offline{color:#b66f12}.autosave-state.offline i{background:#e29a28;box-shadow:0 0 0 4px rgba(226,154,40,.12)}@keyframes autosave-pulse{50%{opacity:.35;transform:scale(.72)}}
+.featured-toggle{display:inline-flex;min-height:36px;align-items:center;gap:7px;padding:0 10px;border:1px solid color-mix(in srgb,var(--line) 60%,transparent);border-radius:999px;color:var(--muted);font-size:10px;font-weight:800;cursor:pointer}.featured-toggle input{width:14px;height:14px;margin:0;accent-color:var(--primary)}.featured-toggle:has(input:checked){border-color:color-mix(in srgb,var(--primary) 48%,var(--line));background:color-mix(in srgb,var(--primary) 9%,transparent);color:var(--primary)}
+
+.reading-progress {
+  position: fixed;
+  z-index: 90;
+  inset: 0 0 auto;
+  height: 3px;
+  background: linear-gradient(90deg, #818cf8, #58a6e8, #49c68d);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--primary) 45%, transparent);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 80ms linear;
+  pointer-events: none;
 }
 
 .scroll-top {
@@ -435,15 +444,29 @@
   padding: 0;
   border: 1px solid color-mix(in srgb, var(--line) 60%, transparent);
   border-radius: 50%;
-  background: rgba(17, 25, 45, .9);
-  box-shadow: 0 12px 32px rgba(4, 9, 24, .28);
+  background: color-mix(in srgb, var(--card) 90%, transparent);
+  box-shadow: 0 12px 32px color-mix(in srgb, var(--primary) 18%, transparent);
   backdrop-filter: blur(14px);
-  color: #bdc2ff;
+  color: var(--primary);
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
   transform: translateY(12px) scale(.9);
   transition: opacity 180ms ease, visibility 180ms ease, transform 220ms cubic-bezier(.22, .8, .3, 1), border-color 180ms ease, background 180ms ease;
+}
+
+.theme-light .scroll-top {
+  border-color: color-mix(in srgb, var(--primary) 22%, var(--line));
+  background: rgba(255, 255, 255, .9);
+  box-shadow: 0 12px 30px rgba(31, 16, 142, .14);
+  color: #1f108e;
+}
+
+.theme-dark .scroll-top {
+  border-color: rgba(189, 194, 255, .25);
+  background: rgba(17, 25, 45, .9);
+  box-shadow: 0 12px 32px rgba(4, 9, 24, .35);
+  color: #bdc2ff;
 }
 
 .scroll-top.visible {
@@ -476,6 +499,8 @@
   html { scroll-behavior: auto; }
   .page-transition { animation: none; }
   .scroll-top { transition: none; }
+  .reading-progress { transition: none; }
+  .autosave-state.saving i { animation: none; }
 }
 
 /* Global React toast notifications. */
