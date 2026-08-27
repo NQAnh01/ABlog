@@ -19,10 +19,41 @@ type User struct {
 	CreatedAt    time.Time          `bson:"created_at" json:"created_at"`
 	UpdatedAt    time.Time          `bson:"updated_at" json:"updated_at"`
 }
+
+// PublicUserDTO is the only user representation that may be embedded in
+// public resources. Keep account, authorization and credential fields on User.
+type PublicUserDTO struct {
+	ID          primitive.ObjectID `json:"id"`
+	Username    string             `json:"username,omitempty"`
+	Name        string             `json:"name"`
+	Avatar      string             `json:"avatar,omitempty"`
+	Bio         string             `json:"bio,omitempty"`
+	SocialLinks SocialLinks        `json:"social_links,omitempty"`
+}
+
+func ToPublicUserDTO(value *User) *PublicUserDTO {
+	if value == nil {
+		return nil
+	}
+	return &PublicUserDTO{
+		ID:          value.ID,
+		Username:    value.Username,
+		Name:        value.Name,
+		Avatar:      value.Avatar,
+		Bio:         value.Bio,
+		SocialLinks: value.SocialLinks,
+	}
+}
+
 type SocialLinks struct {
-	Website  string `bson:"website,omitempty" json:"website,omitempty"`
-	X        string `bson:"x,omitempty" json:"x,omitempty"`
-	LinkedIn string `bson:"linkedin,omitempty" json:"linkedin,omitempty"`
+	Website  string       `bson:"website,omitempty" json:"website,omitempty"`
+	X        string       `bson:"x,omitempty" json:"x,omitempty"`
+	LinkedIn string       `bson:"linkedin,omitempty" json:"linkedin,omitempty"`
+	Links    []SocialLink `bson:"links,omitempty" json:"links,omitempty"`
+}
+type SocialLink struct {
+	Name string `bson:"name" json:"name"`
+	URL  string `bson:"url" json:"url"`
 }
 type Media struct {
 	Key string `bson:"key" json:"key"`
@@ -44,7 +75,7 @@ type Post struct {
 	PublishedAt       *time.Time           `bson:"published_at,omitempty" json:"published_at,omitempty"`
 	CreatedAt         time.Time            `bson:"created_at" json:"created_at"`
 	UpdatedAt         time.Time            `bson:"updated_at" json:"updated_at"`
-	Author            *User                `bson:"-" json:"author,omitempty"`
+	Author            *PublicUserDTO       `bson:"-" json:"author,omitempty"`
 	Autosave          *PostDraft           `bson:"autosave,omitempty" json:"-"`
 	Reactions         []Reaction           `bson:"reactions,omitempty" json:"reactions,omitempty"`
 }
@@ -96,7 +127,7 @@ type Comment struct {
 	Mentions  []primitive.ObjectID `bson:"mention_ids,omitempty" json:"mention_ids,omitempty"`
 	Reactions []Reaction           `bson:"reactions,omitempty" json:"reactions,omitempty"`
 	IsPinned  bool                 `bson:"is_pinned,omitempty" json:"is_pinned"`
-	User      *User                `bson:"-" json:"user,omitempty"`
+	User      *PublicUserDTO       `bson:"-" json:"user,omitempty"`
 }
 type Reaction struct {
 	UserID primitive.ObjectID `bson:"user_id" json:"user_id"`
@@ -139,7 +170,7 @@ type Series struct {
 	IsFeatured  bool               `bson:"is_featured,omitempty" json:"is_featured"`
 	CreatedAt   time.Time          `bson:"created_at" json:"created_at"`
 	UpdatedAt   time.Time          `bson:"updated_at" json:"updated_at"`
-	Author      *User              `bson:"-" json:"author,omitempty"`
+	Author      *PublicUserDTO     `bson:"-" json:"author,omitempty"`
 	Posts       []Post             `bson:"-" json:"posts,omitempty"`
 }
 type SeriesPost struct {

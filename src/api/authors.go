@@ -1,6 +1,7 @@
 package api
 
 import (
+	"net/url"
 	"sort"
 	"strings"
 
@@ -20,10 +21,6 @@ func (s *Server) authorByUsername(c *fiber.Ctx) (*model.User, error) {
 		return nil, fiber.ErrNotFound
 	}
 	return value, nil
-}
-
-func publicUser(value *model.User) fiber.Map {
-	return fiber.Map{"id": value.ID, "username": value.Username, "name": value.Name, "avatar": value.Avatar, "bio": value.Bio, "social_links": value.SocialLinks, "created_at": value.CreatedAt}
 }
 
 func (s *Server) publicAuthor(c *fiber.Ctx) error {
@@ -49,7 +46,7 @@ func (s *Server) publicAuthor(c *fiber.Ctx) error {
 	if s.follows != nil {
 		followerCount, _ = s.follows.Count(c.UserContext(), author.ID)
 	}
-	return success(c, 200, fiber.Map{"author": publicUser(author), "posts": posts, "series": seriesValues, "post_count": total, "follower_count": followerCount})
+	return success(c, 200, fiber.Map{"author": model.ToPublicUserDTO(author), "posts": posts, "series": seriesValues, "post_count": total, "follower_count": followerCount})
 }
 
 func (s *Server) optionalViewer(c *fiber.Ctx) primitive.ObjectID {
@@ -130,6 +127,31 @@ func (s *Server) updateAuthorProfile(c *fiber.Ctx) error {
 	if len(input.Bio) > 320 {
 		return fiber.NewError(422, "bio must be 320 characters or fewer")
 	}
+	if len(input.SocialLinks.Links) > 8 {
+		return fiber.NewError(422, "no more than 8 custom links are allowed")
+	}
+	validateURL := func(raw string) bool {
+		if strings.TrimSpace(raw) == "" {
+			return true
+		}
+		value, parseErr := url.ParseRequestURI(strings.TrimSpace(raw))
+		return parseErr == nil && (value.Scheme == "http" || value.Scheme == "https") && value.Host != ""
+	}
+	if !validateURL(input.SocialLinks.Website) || !validateURL(input.SocialLinks.X) || !validateURL(input.SocialLinks.LinkedIn) {
+		return fiber.NewError(422, "social links must use a valid http or https URL")
+	}
+	cleanLinks := make([]model.SocialLink, 0, len(input.SocialLinks.Links))
+	for _, link := range input.SocialLinks.Links {
+		link.Name, link.URL = strings.TrimSpace(link.Name), strings.TrimSpace(link.URL)
+		if link.Name == "" && link.URL == "" {
+			continue
+		}
+		if len(link.Name) > 40 || link.Name == "" || !validateURL(link.URL) || link.URL == "" {
+			return fiber.NewError(422, "each custom link needs a name of 40 characters or fewer and a valid URL")
+		}
+		cleanLinks = append(cleanLinks, link)
+	}
+	input.SocialLinks.Links = cleanLinks
 	repo, ok := s.auth.Users.(repository.PublicAuthorRepository)
 	if !ok {
 		return fiber.NewError(503, "author profiles unavailable")

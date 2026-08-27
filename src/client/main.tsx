@@ -24,4 +24,6 @@ import './series.css'
 import './selection-quote.css'
 import './author-page.css'
 import './pwa.css'
+import './auth-settings-polish.css'
+import './icon-system.css'
 ReactDOM.createRoot(document.getElementById('root')!).render(<React.StrictMode><BrowserRouter><ToastProvider><PWAProvider><AuthProvider><BookmarkProvider><App/></BookmarkProvider></AuthProvider></PWAProvider></ToastProvider></BrowserRouter></React.StrictMode>)

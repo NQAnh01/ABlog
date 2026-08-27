@@ -1,0 +1,129 @@
+.lucide {
+  display: block;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  stroke-width: 1.9;
+}
+
+.rich-toolbar button {
+  display: inline-grid;
+  place-items: center;
+}
+
+.command-palette > header > span .lucide,
+.command-empty > span .lucide {
+  width: 22px;
+  height: 22px;
+}
+
+.mobile-nav-drawer > header > button .lucide {
+  width: 21px;
+  height: 21px;
+}
+
+.account-settings > header > a,
+.custom-links header button,
+.pwa-install {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.settings-layout > aside nav i,
+.custom-link-row > button {
+  display: grid;
+  place-items: center;
+}
+
+.settings-layout > aside nav i {
+  width: 24px;
+  flex: 0 0 24px;
+}
+
+.settings-layout > aside nav i .lucide,
+.custom-link-row > button .lucide,
+.account-settings > header > a .lucide,
+.custom-links header button .lucide {
+  width: 17px;
+  height: 17px;
+}
+
+.save-offline {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  gap: 8px;
+  margin-top: 18px;
+  padding: 0 14px;
+  border: 1px solid color-mix(in srgb, var(--primary) 38%, var(--line));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.save-offline.saved {
+  border-color: color-mix(in srgb, #35a66f 45%, var(--line));
+  background: color-mix(in srgb, #35a66f 11%, transparent);
+  color: #63c994;
+}
+
+.save-offline:disabled:not(.saved) {
+  cursor: not-allowed;
+  opacity: .55;
+}
+
+.offline-help {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin: -15px 0 28px;
+  padding: 16px 18px;
+  border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--line));
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--primary) 7%, var(--card));
+}
+
+.offline-help > .lucide {
+  width: 21px;
+  height: 21px;
+  color: var(--primary);
+}
+
+.offline-help p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.offline-help code {
+  color: var(--primary);
+}
+
+.offline-empty {
+  display: grid;
+  min-height: 310px;
+  place-items: center;
+  align-content: center;
+  gap: 4px;
+  text-align: center;
+}
+
+.offline-empty > .lucide {
+  width: 34px;
+  height: 34px;
+  margin-bottom: 5px;
+  color: var(--primary);
+}
+
+.offline-empty .state {
+  min-height: auto;
+  padding: 12px;
+}
+
+.offline-empty > .button {
+  margin-top: 8px;
+}

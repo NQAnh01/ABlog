@@ -1,8 +1,11 @@
-import { isValidElement, useEffect, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
+import { isValidElement, lazy, Suspense, useEffect, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { api } from '../services/api'
 import { useToast } from '../hooks/useToast'
+import { useAuth } from '../hooks/useAuth'
+
+const RichTextEditor=lazy(()=>import('./RichTextEditor'))
 
 type Props = { value: string; onChange(value: string): void; onError(message: string): void }
 type Action = { label: string; title: string; before: string; after?: string; placeholder?: string; line?: boolean }
@@ -104,10 +107,17 @@ export function PreviewableImage({ src, alt, className }: { src: string; alt: st
 
 export function MarkdownEditor({ value, onChange, onError }: Props) {
   const toast = useToast()
+  const {user}=useAuth()
   const textarea = useRef<HTMLTextAreaElement>(null)
   const imageInput = useRef<HTMLInputElement>(null)
-  const [mode, setMode] = useState<'write' | 'preview'>('write')
+  const preferenceKey=`lumina:editor-mode:${user?.id??'guest'}`
+  const [mode, setMode] = useState<'rich' | 'markdown'>(()=>localStorage.getItem(preferenceKey)==='markdown'?'markdown':'rich')
+  const [markdownMode,setMarkdownMode]=useState<'edit'|'split'|'preview'>('edit')
   const [uploading, setUploading] = useState(false)
+
+  useEffect(()=>{const saved=localStorage.getItem(preferenceKey);if(saved==='rich'||saved==='markdown')setMode(saved)},[preferenceKey])
+  function selectMode(next:'rich'|'markdown'){setMode(next);localStorage.setItem(preferenceKey,next)}
+  const hasAdvancedHTML=/(^|\n)\s*<([a-z][\w-]*)(?:\s[^>]*)?>[\s\S]*?<\/\2>\s*(?=\n|$)/i.test(value)
 
   function insert(action: Action) {
     const element = textarea.current
@@ -160,5 +170,9 @@ export function MarkdownEditor({ value, onChange, onError }: Props) {
     finally { setUploading(false); event.target.value = '' }
   }
 
-  return <div className="markdown-editor"><header><div className="markdown-tabs"><button type="button" className={mode === 'write' ? 'active' : ''} onClick={() => setMode('write')}>Write</button><button type="button" className={mode === 'preview' ? 'active' : ''} onClick={() => setMode('preview')}>Preview</button></div>{mode === 'write' && <div className="markdown-toolbar">{actions.map(action => <button type="button" key={action.title} title={action.title} onClick={() => insert(action)}>{action.label}</button>)}<button type="button" title="Code block" onClick={insertCodeBlock}>```</button><button type="button" title="Insert link" onClick={insertLink}>⌁</button><button type="button" title="Upload image" disabled={uploading} onClick={() => imageInput.current?.click()}>{uploading ? '…' : '▧'}</button><input ref={imageInput} type="file" hidden accept="image/jpeg,image/png,image/webp" onChange={event => void uploadImage(event)} /></div>}</header>{mode === 'write' ? <textarea ref={textarea} value={value} onChange={event => onChange(event.target.value)} placeholder={'Begin writing in Markdown…\n\n## A new section\n\nTell the story with clarity.'} required spellCheck={false} /> : value.trim() ? <MarkdownView>{value}</MarkdownView> : <div className="markdown-empty">Nothing to preview yet.</div>}</div>
+  const markdownInput=<textarea ref={textarea} value={value} onChange={event=>onChange(event.target.value)} placeholder={'Begin writing in Markdown…\n\n## A new section\n\nTell the story with clarity.'} required spellCheck={false}/>
+  const markdownPreview=value.trim()?<MarkdownView>{value}</MarkdownView>:<div className="markdown-empty">Nothing to preview yet.</div>
+  return <div className="markdown-editor"><header><div className="markdown-tabs" role="tablist" aria-label="Editor type"><button type="button" role="tab" aria-selected={mode==='rich'} className={mode==='rich'?'active':''} onClick={()=>selectMode('rich')}>Rich Text</button><button type="button" role="tab" aria-selected={mode==='markdown'} className={mode==='markdown'?'active':''} onClick={()=>selectMode('markdown')}>Markdown</button></div>{mode==='markdown'&&<div className="markdown-view-tabs" role="group" aria-label="Markdown layout"><button type="button" className={markdownMode==='edit'?'active':''} aria-pressed={markdownMode==='edit'} onClick={()=>setMarkdownMode('edit')}>Edit</button><button type="button" className={markdownMode==='split'?'active':''} aria-pressed={markdownMode==='split'} onClick={()=>setMarkdownMode('split')}>Split</button><button type="button" className={markdownMode==='preview'?'active':''} aria-pressed={markdownMode==='preview'} onClick={()=>setMarkdownMode('preview')}>Preview</button></div>}</header>
+    {mode==='markdown'?<>{markdownMode!=='preview'&&<div className="markdown-toolbar">{actions.map(action=><button type="button" key={action.title} title={action.title} onClick={()=>insert(action)}>{action.label}</button>)}<button type="button" title="Code block" onClick={insertCodeBlock}>```</button><button type="button" title="Insert link" onClick={insertLink}>⌁</button><button type="button" title="Upload image" disabled={uploading} onClick={()=>imageInput.current?.click()}>{uploading?'…':'▧'}</button><input ref={imageInput} type="file" hidden accept="image/jpeg,image/png,image/webp" onChange={event=>void uploadImage(event)}/></div>}<div className={`markdown-workspace ${markdownMode}`}>{markdownMode==='edit'?markdownInput:markdownMode==='preview'?markdownPreview:<>{markdownInput}<div className="markdown-split-preview" aria-label="Markdown preview">{markdownPreview}</div></>}</div></>:hasAdvancedHTML?<div className="rich-advanced-content"><strong>Advanced content — edit in Markdown mode.</strong><p>Rich Text is locked to preserve raw HTML without changing it.</p><pre><code>{value}</code></pre></div>:<Suspense fallback={<div className="rich-editor-loading" role="status">Loading rich editor…</div>}><RichTextEditor value={value} onChange={onChange} onError={onError}/></Suspense>}
+  </div>
 }

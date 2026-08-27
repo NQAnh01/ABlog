@@ -67,6 +67,214 @@
 .theme-dark .story-identity a, .theme-dark .editor-options label { color: #dae2fd; }
 .theme-dark .editor-excerpt textarea, .theme-dark .cover-upload { border-color: var(--line); background: #0f182b; color: #dae2fd; }
 .theme-dark .markdown-editor > textarea { background: #0f182b !important; color: #dae2fd !important; }
+
+/* Rich editor: keep every layer on the active theme instead of mixing the
+   light toolbar defaults with the dark writing surface. */
+.markdown-editor {
+  border-color: var(--line);
+  background: var(--card);
+  color: inherit;
+  box-shadow: 0 12px 34px color-mix(in srgb, #020617 8%, transparent);
+}
+.markdown-editor > header {
+  border-color: color-mix(in srgb, var(--line) 72%, transparent);
+  background: color-mix(in srgb, var(--card) 84%, var(--surface));
+}
+.markdown-tabs {
+  padding: 3px;
+  border: 1px solid color-mix(in srgb, var(--line) 60%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
+}
+.markdown-tabs button {
+  min-height: 38px;
+  padding-inline: 15px;
+  color: var(--muted);
+  transition: color .18s, background .18s, box-shadow .18s;
+}
+.markdown-tabs button:hover { color: var(--primary); }
+.markdown-tabs button.active {
+  background: var(--card);
+  color: var(--primary);
+  box-shadow: 0 3px 10px color-mix(in srgb, #020617 12%, transparent);
+}
+.rich-toolbar {
+  border-color: color-mix(in srgb, var(--line) 70%, transparent);
+  background: color-mix(in srgb, var(--surface) 64%, var(--card));
+}
+.rich-toolbar button { color: var(--muted); }
+.rich-toolbar button:hover,
+.rich-toolbar button.active {
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
+  color: var(--primary);
+}
+.rich-heading {
+  position: relative;
+  display: block;
+}
+.rich-heading::after {
+  content: '';
+  position: absolute;
+  right: 13px;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  color: var(--primary);
+  pointer-events: none;
+  transform: translateY(-68%) rotate(45deg);
+}
+.rich-heading select {
+  min-width: 146px;
+  padding: 0 38px 0 14px;
+  appearance: none;
+  -webkit-appearance: none;
+  border-color: color-mix(in srgb, var(--line) 78%, transparent);
+  border-radius: 9px;
+  background: var(--card);
+  color: inherit;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+  box-shadow: 0 2px 7px color-mix(in srgb, #020617 8%, transparent);
+  transition: border-color .18s, box-shadow .18s, background .18s;
+}
+.rich-heading select:hover {
+  border-color: color-mix(in srgb, var(--primary) 55%, var(--line));
+  background: color-mix(in srgb, var(--primary) 5%, var(--card));
+}
+.rich-heading select:focus-visible {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 17%, transparent);
+}
+.rich-heading option {
+  background: var(--card);
+  color: inherit;
+}
+.rich-text-surface {
+  background: var(--card);
+  color: inherit;
+  caret-color: var(--primary);
+}
+.rich-text-surface p,
+.rich-text-surface li { color: inherit; }
+.rich-text-surface h1,
+.rich-text-surface h2,
+.rich-text-surface h3 { color: inherit; }
+.rich-text-surface blockquote { color: var(--muted); }
+.rich-text-surface code {
+  background: color-mix(in srgb, var(--primary) 10%, var(--surface));
+  color: var(--primary);
+}
+.rich-text-surface pre { background: color-mix(in srgb, #020617 90%, var(--card)); }
+.rich-text-surface pre code { background: transparent; color: #e7eaff; }
+.rich-text-surface a { color: var(--primary); }
+.rich-text-surface hr { border-color: var(--line); }
+.rich-text-surface p.is-editor-empty:first-child::before { color: var(--muted); }
+.rich-slash-menu {
+  border-color: var(--line);
+  background: var(--card);
+  color: inherit;
+}
+.rich-slash-menu button { color: inherit; }
+.rich-slash-menu button.active {
+  background: color-mix(in srgb, var(--primary) 13%, transparent);
+  color: var(--primary);
+}
+.theme-dark .markdown-editor {
+  background: #10192d;
+  box-shadow: 0 18px 45px rgba(0,0,0,.22);
+}
+.theme-dark .markdown-editor > header {
+  background: #182238;
+}
+.theme-dark .markdown-tabs { background: #0f182b; }
+.theme-dark .markdown-tabs button.active {
+  background: #28334b;
+  color: #eef0ff;
+  box-shadow: 0 4px 12px rgba(0,0,0,.28);
+}
+.theme-dark .rich-toolbar { background: #151f34; }
+.theme-dark .rich-heading select { background: #202b42; color: #edf0ff; }
+.theme-dark .rich-heading option { background: #202b42; color: #edf0ff; }
+.theme-dark .rich-text-surface {
+  background: #10192d;
+  color: #edf1ff;
+}
+.theme-dark .rich-text-surface blockquote { color: #cbd5ea; }
+.theme-dark .rich-text-surface p.is-editor-empty:first-child::before { color: #8290aa; }
+
+.markdown-view-tabs {
+  display: flex;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid color-mix(in srgb, var(--line) 60%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
+}
+.markdown-view-tabs button {
+  min-height: 36px;
+  padding: 0 13px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+.markdown-view-tabs button:hover { color: var(--primary); }
+.markdown-view-tabs button.active {
+  background: var(--card);
+  color: var(--primary);
+  box-shadow: 0 2px 8px color-mix(in srgb, #020617 12%, transparent);
+}
+.markdown-editor > .markdown-toolbar {
+  justify-content: flex-start;
+  min-height: 50px;
+  padding: 7px 11px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  background: color-mix(in srgb, var(--surface) 64%, var(--card));
+}
+.markdown-editor > .markdown-toolbar button { min-width: 44px;min-height: 38px; }
+.markdown-workspace { min-height: 520px;background: var(--card); }
+.markdown-workspace > textarea {
+  display: block;
+  width: 100%;
+  min-height: 520px;
+  margin: 0;
+  padding: 26px;
+  resize: vertical;
+  border: 0;
+  outline: 0;
+  background: var(--card);
+  color: inherit;
+  font: 16px/1.75 ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
+  caret-color: var(--primary);
+}
+.markdown-workspace.preview > .markdown-body,
+.markdown-split-preview > .markdown-body { min-height: 520px;padding: 26px; }
+.markdown-workspace.split {
+  display: grid;
+  grid-template-columns: minmax(0,1fr) minmax(0,1fr);
+}
+.markdown-workspace.split > textarea { resize: none;border-right: 1px solid var(--line); }
+.markdown-split-preview { min-width: 0;max-height: 70vh;overflow: auto;background: color-mix(in srgb, var(--surface) 38%, var(--card)); }
+.markdown-split-preview .markdown-body { color: inherit; }
+.theme-dark .markdown-view-tabs { background: #0f182b; }
+.theme-dark .markdown-view-tabs button.active { background: #28334b;color: #eef0ff; }
+.theme-dark .markdown-editor > .markdown-toolbar { background: #151f34; }
+.theme-dark .markdown-workspace,
+.theme-dark .markdown-workspace > textarea { background: #10192d;color: #edf1ff; }
+.theme-dark .markdown-split-preview { background: #111c31; }
+@media(max-width:800px){
+  .markdown-editor>header{gap:8px}
+  .markdown-view-tabs{width:100%}
+  .markdown-view-tabs button{flex:1;min-height:44px}
+  .markdown-workspace.split{grid-template-columns:1fr}
+  .markdown-workspace.split>textarea{min-height:360px;border-right:0;border-bottom:1px solid var(--line)}
+  .markdown-split-preview{max-height:none}
+}
 @media (max-width: 800px) {
   .theme-toggle { width: 36px; height: 36px; padding: 0; }
 }

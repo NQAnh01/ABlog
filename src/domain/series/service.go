@@ -40,7 +40,7 @@ func (s Service) fill(ctx context.Context, value *model.Series, publicOnly bool)
 		value.Posts = append(value.Posts, *postValue)
 	}
 	if userValue, err := s.Users.FindByID(ctx, value.AuthorID); err == nil {
-		value.Author = userValue
+		value.Author = model.ToPublicUserDTO(userValue)
 	}
 	return nil
 }

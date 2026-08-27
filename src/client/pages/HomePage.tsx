@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { Layout, StoryGridSkeleton } from '../components/ui'
 import { api } from '../services/api'
-import type { Category, Post, Series, User } from '../types'
+import type { Category, Post, PublicUser, Series } from '../types'
 import { useAuth } from '../hooks/useAuth'
 import { recentPostIds } from '../recent-reading'
 import { BlogCard } from '../components/BlogCard'
@@ -39,7 +39,7 @@ export function HomePage() {
   useEffect(()=>{
     let active=true
     const from=new Date(Date.now()-7*24*60*60*1000).toISOString().slice(0,10)
-    Promise.all([api.posts('?featured=true&limit=1'),api.posts('?limit=100'),api.posts(`?from=${from}&limit=5`),api.categories(),api.series(true)]).then(([featuredPage,recentPage,trendingPage,categoryData,seriesData])=>{
+    Promise.all([api.posts('?featured=true&limit=1'),api.posts('?limit=100'),api.posts(`?from=${from}&limit=5`).catch(()=>({items:[],page:1,limit:5,total:0})),api.categories().catch(()=>[]),api.series(true).catch(()=>[])]).then(([featuredPage,recentPage,trendingPage,categoryData,seriesData])=>{
       if(!active)return
       const recent=recentPage.items??[]
       setFeatured(featuredPage.items?.[0]??recent[0]??null);setPosts(recent);setTrending(trendingPage.items??[]);setCategories(categoryData??[]);setFeaturedSeries(seriesData??[])
@@ -51,7 +51,7 @@ export function HomePage() {
   const picks=posts.filter(post=>post.id!==featured?.id).slice(0,3)
   const categorySections=useMemo(()=>categories.map(category=>({category,posts:posts.filter(post=>post.category_ids?.includes(category.id)).slice(0,4)})).filter(section=>section.posts.length>=3).slice(0,3),[categories,posts])
   const authors=useMemo(()=>{
-    const values=new Map<string,{author:User;count:number;categoryIds:string[]}>()
+    const values=new Map<string,{author:PublicUser;count:number;categoryIds:string[]}>()
     for(const post of posts){if(!post.author?.id)continue;const current=values.get(post.author.id)??{author:post.author,count:0,categoryIds:[]};current.count++;current.categoryIds.push(...(post.category_ids??[]));values.set(post.author.id,current)}
     return [...values.values()].sort((a,b)=>b.count-a.count).slice(0,3).map(value=>{const topics=[...new Set(value.categoryIds)].map(id=>categories.find(category=>category.id===id)?.name).filter(Boolean).slice(0,2);return{...value,bio:topics.length?`Writing about ${topics.join(' and ')}.`:'A thoughtful voice in the Lumina community.'}})
   },[posts,categories])

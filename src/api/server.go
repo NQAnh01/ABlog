@@ -364,12 +364,12 @@ func (s *Server) getPost(c *fiber.Ctx) error {
 		return fiber.ErrNotFound
 	}
 	if u, err := s.auth.Users.FindByID(c.UserContext(), p.AuthorID); err == nil {
-		p.Author = u
+		p.Author = model.ToPublicUserDTO(u)
 	}
 	return success(c, 200, p)
 }
 func (s *Server) populateAuthors(ctx context.Context, posts []model.Post) {
-	seen := map[primitive.ObjectID]*model.User{}
+	seen := map[primitive.ObjectID]*model.PublicUserDTO{}
 	for i := range posts {
 		aid := posts[i].AuthorID
 		if aid.IsZero() {
@@ -380,13 +380,14 @@ func (s *Server) populateAuthors(ctx context.Context, posts []model.Post) {
 			continue
 		}
 		if u, err := s.auth.Users.FindByID(ctx, aid); err == nil {
-			seen[aid] = u
-			posts[i].Author = u
+			publicUser := model.ToPublicUserDTO(u)
+			seen[aid] = publicUser
+			posts[i].Author = publicUser
 		}
 	}
 }
 func (s *Server) populateCommentUsers(ctx context.Context, comments []model.Comment) {
-	seen := map[primitive.ObjectID]*model.User{}
+	seen := map[primitive.ObjectID]*model.PublicUserDTO{}
 	ids := make([]primitive.ObjectID, 0)
 	unique := map[primitive.ObjectID]bool{}
 	for _, commentValue := range comments {
@@ -399,7 +400,7 @@ func (s *Server) populateCommentUsers(ctx context.Context, comments []model.Comm
 		if users, err := batch.FindByIDs(ctx, ids); err == nil {
 			for index := range users {
 				userValue := users[index]
-				seen[userValue.ID] = &userValue
+				seen[userValue.ID] = model.ToPublicUserDTO(&userValue)
 			}
 		}
 	}
@@ -410,8 +411,9 @@ func (s *Server) populateCommentUsers(ctx context.Context, comments []model.Comm
 			continue
 		}
 		if userValue, err := s.auth.Users.FindByID(ctx, id); err == nil {
-			seen[id] = userValue
-			comments[index].User = userValue
+			publicUser := model.ToPublicUserDTO(userValue)
+			seen[id] = publicUser
+			comments[index].User = publicUser
 		}
 	}
 }
@@ -763,7 +765,7 @@ func (s *Server) createComment(c *fiber.Ctx) error {
 		return fiber.NewError(422, e.Error())
 	}
 	if userValue, err := s.auth.Users.FindByID(c.UserContext(), v.UserID); err == nil {
-		v.User = userValue
+		v.User = model.ToPublicUserDTO(userValue)
 	}
 	return success(c, 201, v)
 }

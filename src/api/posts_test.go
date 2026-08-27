@@ -40,6 +40,30 @@ func (f *apiUsers) FindByID(_ context.Context, id primitive.ObjectID) (*model.Us
 	}
 	return nil, mongo.ErrNoDocuments
 }
+func (f *apiUsers) FindByIDs(_ context.Context, ids []primitive.ObjectID) ([]model.User, error) {
+	values := make([]model.User, 0, len(ids))
+	for _, id := range ids {
+		if value, ok := f.items[id]; ok {
+			values = append(values, *value)
+		}
+	}
+	return values, nil
+}
+func (f *apiUsers) FindByUsername(_ context.Context, username string) (*model.User, error) {
+	for _, value := range f.items {
+		if value.Username == username {
+			return value, nil
+		}
+	}
+	return nil, mongo.ErrNoDocuments
+}
+func (f *apiUsers) UpdateAuthorProfile(_ context.Context, id primitive.ObjectID, bio string, links model.SocialLinks) error {
+	if value, ok := f.items[id]; ok {
+		value.Bio, value.SocialLinks = bio, links
+		return nil
+	}
+	return mongo.ErrNoDocuments
+}
 func (f *apiUsers) UpdateProfile(_ context.Context, id primitive.ObjectID, name, phone string) error {
 	if v, ok := f.items[id]; ok {
 		v.Name, v.Phone = name, phone
