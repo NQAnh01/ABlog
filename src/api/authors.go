@@ -42,6 +42,12 @@ func (s *Server) publicAuthor(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
+	if posts == nil {
+		posts = []model.Post{}
+	}
+	if seriesValues == nil {
+		seriesValues = []model.Series{}
+	}
 	followerCount := int64(0)
 	if s.follows != nil {
 		followerCount, _ = s.follows.Count(c.UserContext(), author.ID)

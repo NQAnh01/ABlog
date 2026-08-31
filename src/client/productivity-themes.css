@@ -1,0 +1,81 @@
+/* Explicit light and dark treatments for Todos and Discussions. */
+.theme-light .todo-page,
+.theme-light .discussions-page,
+.theme-light .discussion-detail{color:#172235}
+.theme-light .todo-create,
+.theme-light .todo-list article,
+.theme-light .discussion-list>article,
+.theme-light .discussion-compose>form{border-color:#dfe2ed;background:#fff;box-shadow:0 14px 38px rgba(31,36,68,.07)}
+.theme-light .todo-create input,
+.theme-light .todo-toolbar input,
+.theme-light .discussion-toolbar input,
+.theme-light .discussion-compose input{border-color:#cfd4e2;background:#f8f9ff;color:#172235}
+.theme-light .todo-list article.completed{background:color-mix(in srgb,var(--primary) 4%,#fff)}
+.theme-light .discussion-toolbar .discussion-interest-filter{border-color:var(--accent-fill);background:var(--accent-fill);color:var(--accent-ink);box-shadow:0 7px 18px color-mix(in srgb,var(--primary) 18%,transparent)}
+.theme-light .discussion-toolbar .discussion-interest-filter:hover{background:color-mix(in srgb,var(--accent-fill) 88%,#fff);color:var(--accent-ink)}
+.theme-light .discussion-toolbar .discussion-interest-filter.active{box-shadow:0 0 0 3px color-mix(in srgb,var(--primary) 18%,transparent),0 8px 20px color-mix(in srgb,var(--primary) 20%,transparent)}
+.theme-light .discussion-toolbar .discussion-interest-filter.active svg{fill:currentColor}
+.theme-light .discussion-excerpt,
+.theme-light .discussion-comments article .markdown-body{color:#596277}
+.theme-light .discussion-comments>div>article{border-color:#e1e4ed}
+.theme-light .discussion-compose{background:rgba(15,23,42,.58)}
+.theme-light .discussion-compose .markdown-editor,
+.theme-light .discussion-comments .markdown-editor{border-color:#d6dae6;background:#fff;color:#172235}
+.theme-light .discussion-compose .rich-toolbar,
+.theme-light .discussion-comments .rich-toolbar{background:#f5f6fb}
+.theme-light .discussion-compose .rich-text-surface,
+.theme-light .discussion-comments .rich-text-surface{background:#fff;color:#172235}
+
+.theme-dark .todo-page,
+.theme-dark .discussions-page,
+.theme-dark .discussion-detail{color:#e7ecfb}
+.theme-dark .todo-create,
+.theme-dark .todo-list article,
+.theme-dark .discussion-list>article,
+.theme-dark .discussion-compose>form{border-color:#35415a;background:#111b30;box-shadow:0 18px 46px rgba(0,0,0,.24)}
+.theme-dark .todo-create input,
+.theme-dark .todo-toolbar input,
+.theme-dark .discussion-toolbar input,
+.theme-dark .discussion-compose input{border-color:#3b4861;background:#0c1629;color:#edf1ff}
+.theme-dark .todo-create input::placeholder,
+.theme-dark .todo-toolbar input::placeholder,
+.theme-dark .discussion-toolbar input::placeholder,
+.theme-dark .discussion-compose input::placeholder{color:#8290aa}
+.theme-dark .todo-list article.completed{border-color:color-mix(in srgb,var(--primary) 25%,#35415a);background:color-mix(in srgb,var(--primary) 6%,#111b30)}
+.theme-dark .todo-delete:hover{background:rgba(239,89,99,.13);color:#ff9ca3}
+.theme-dark .discussion-toolbar .discussion-interest-filter{border-color:var(--accent-fill);background:var(--accent-fill);color:var(--accent-ink);box-shadow:0 8px 22px rgba(0,0,0,.22)}
+.theme-dark .discussion-toolbar .discussion-interest-filter:hover{background:color-mix(in srgb,var(--accent-fill) 88%,#fff);color:var(--accent-ink)}
+.theme-dark .discussion-toolbar .discussion-interest-filter.active{border-color:var(--primary);background:var(--accent-fill);color:var(--accent-ink);box-shadow:0 0 0 3px color-mix(in srgb,var(--primary) 18%,transparent),0 9px 24px rgba(0,0,0,.25)}
+.theme-dark .discussion-toolbar .discussion-interest-filter.active svg{fill:currentColor}
+.theme-dark .discussion-interest{border-color:#3d4961!important;background:#0f192c!important;color:#aeb9cf!important}
+.theme-dark .discussion-interest:hover,
+.theme-dark .discussion-interest.interested{border-color:var(--primary)!important;color:var(--primary)!important}
+.theme-dark .discussion-interest.interested{background:color-mix(in srgb,var(--primary) 13%,#0f192c)!important}
+.theme-dark .discussion-excerpt,
+.theme-dark .discussion-comments article .markdown-body{color:#b5c1d8}
+.theme-dark .discussion-comments>div>article{border-color:#35415a}
+.theme-dark .discussion-compose{background:rgba(2,6,16,.78)}
+.theme-dark .discussion-compose .markdown-editor,
+.theme-dark .discussion-comments .markdown-editor{border-color:#3a465e;background:#0f192d;color:#edf1ff}
+.theme-dark .discussion-compose .markdown-editor>header,
+.theme-dark .discussion-comments .markdown-editor>header{border-color:#35415a;background:#152139}
+.theme-dark .discussion-compose .markdown-tabs,
+.theme-dark .discussion-comments .markdown-tabs,
+.theme-dark .discussion-compose .markdown-view-tabs,
+.theme-dark .discussion-comments .markdown-view-tabs{border-color:#3b4861;background:#0b1527}
+.theme-dark .discussion-compose .markdown-tabs button.active,
+.theme-dark .discussion-comments .markdown-tabs button.active,
+.theme-dark .discussion-compose .markdown-view-tabs button.active,
+.theme-dark .discussion-comments .markdown-view-tabs button.active{background:#28354e;color:#f0f3ff}
+.theme-dark .discussion-compose .rich-toolbar,
+.theme-dark .discussion-comments .rich-toolbar{border-color:#35415a;background:#142037}
+.theme-dark .discussion-compose .rich-heading select,
+.theme-dark .discussion-comments .rich-heading select{border-color:#414d65;background:#202c44;color:#edf1ff}
+.theme-dark .discussion-compose .rich-text-surface,
+.theme-dark .discussion-comments .rich-text-surface{background:#0e182b;color:#edf1ff;caret-color:var(--primary)}
+.theme-dark .discussion-compose .markdown-workspace,
+.theme-dark .discussion-compose .markdown-workspace>textarea,
+.theme-dark .discussion-comments .markdown-workspace,
+.theme-dark .discussion-comments .markdown-workspace>textarea{background:#0e182b;color:#edf1ff}
+.theme-dark .discussion-compose .admin-alert,
+.theme-dark .discussion-comments .admin-alert{border-color:rgba(239,89,99,.3);background:rgba(239,89,99,.1);color:#ffb4ba}

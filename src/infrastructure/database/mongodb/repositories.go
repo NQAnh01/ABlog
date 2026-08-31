@@ -59,6 +59,12 @@ func (r *Repositories) indexes(ctx context.Context) error {
 	}); e != nil {
 		return e
 	}
+	if _, e := r.DB.Collection("todos").Indexes().CreateOne(ctx, mongo.IndexModel{Keys: bson.D{{Key: "user_id", Value: 1}, {Key: "created_at", Value: -1}}}); e != nil {
+		return e
+	}
+	if _, e := r.DB.Collection("discussions").Indexes().CreateMany(ctx, []mongo.IndexModel{{Keys: bson.D{{Key: "created_at", Value: -1}}}, {Keys: bson.D{{Key: "interested_ids", Value: 1}}}}); e != nil {
+		return e
+	}
 	return nil
 }
 

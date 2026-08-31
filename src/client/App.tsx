@@ -22,7 +22,9 @@ const HomePage=lazy(()=>import('./pages/HomePage').then(module=>({default:module
 const SeriesPage=lazy(()=>import('./pages/SeriesPages').then(module=>({default:module.SeriesPage})))
 const SeriesManagerPage=lazy(()=>import('./pages/SeriesPages').then(module=>({default:module.SeriesManagerPage})))
 const AuthorPage=lazy(()=>import('./pages/AuthorPage').then(module=>({default:module.AuthorPage})))
-const OfflinePage=lazy(()=>import('./pages/OfflinePage').then(module=>({default:module.OfflinePage})))
+const TodoPage=lazy(()=>import('./pages/TodoPage').then(module=>({default:module.TodoPage})))
+const DiscussionsPage=lazy(()=>import('./pages/DiscussionPages').then(module=>({default:module.DiscussionsPage})))
+const DiscussionPage=lazy(()=>import('./pages/DiscussionPages').then(module=>({default:module.DiscussionPage})))
 
 function RouteFallback(){return <div className="route-loading" role="status" aria-live="polite"><span className="spinner"/><span>Loading page…</span></div>}
 
@@ -53,7 +55,9 @@ export default function App() {
         <Route path="/profile" element={<ProfilePage/>}/>
         <Route path="/profile/settings" element={<UserSettingsPage/>}/>
         <Route path="/saved" element={<SavedPage/>}/>
-        <Route path="/offline" element={<OfflinePage/>}/>
+        <Route path="/todos" element={<TodoPage/>}/>
+        <Route path="/discussions" element={<DiscussionsPage/>}/>
+        <Route path="/discussions/:id" element={<DiscussionPage/>}/>
         <Route path="/series/:slug" element={<SeriesPage/>}/>
         <Route path="/author/:username" element={<AuthorPage/>}/>
         <Route path="/admin/series" element={<SeriesManagerPage/>}/>

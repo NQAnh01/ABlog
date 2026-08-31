@@ -7,6 +7,8 @@ import { api } from '../services/api'
 import { useToast } from '../hooks/useToast'
 import { createAutosaveController, localDraftKey, newestRestorableDraft, readLocalDraft } from '../autosave.mjs'
 import type { Category, Comment, Dashboard, Media, Post, PostDraft, PostInput, PostVersion, Tag } from '../types'
+import { ViewToggle } from '../components/ViewToggle'
+import { confirmAction } from '../components/ConfirmModal'
 
 function AdminGuard({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth()
@@ -42,16 +44,16 @@ export function AdminPostsPage() {
   }, [status, query, page])
 
   async function remove(post: Post) {
-    if (!window.confirm(`Delete “${post.title}”? This action cannot be undone.`)) return
+    if (!await confirmAction({title:'Delete story?',message:`“${post.title}” will be permanently deleted. This action cannot be undone.`,confirmLabel:'Delete story',danger:true})) return
     try { await api.deletePost(post.id); setPosts(current => current.filter(item => item.id !== post.id)); setTotal(value => value - 1); toast('Story deleted successfully.') }
     catch (err) { setError(err instanceof Error ? err.message : 'Unable to delete story') }
   }
 
   return <AdminGuard><Layout><section className="admin admin-dashboard container">
     <header className="admin-heading"><div><span className="eyebrow">{user?.role === 'admin' ? 'EDITORIAL DESK' : 'YOUR WRITING DESK'}</span><h1>{user?.role === 'admin' ? 'All stories' : 'Your stories'}</h1><p>Write freely, then choose who can see each story.</p></div><Link className="button" to="/admin/posts/create">Create story&nbsp; +</Link></header>
-    <div className="admin-toolbar"><form onSubmit={event => { event.preventDefault(); const data = new FormData(event.currentTarget); const next = new URLSearchParams(params); const value = String(data.get('q') ?? '').trim(); value ? next.set('q', value) : next.delete('q'); setParams(next) }}><span>⌕</span><input name="q" defaultValue={query} placeholder="Search your stories" /></form><div className="status-tabs">{[['','All'],['private','Private'],['public','Public']].map(([value,label]) => <button className={status === value ? 'active' : ''} key={value} onClick={() => { const next = new URLSearchParams(params); value ? next.set('status', value) : next.delete('status'); setParams(next) }}>{label}</button>)}</div><span className="story-count">{total} {total === 1 ? 'story' : 'stories'}</span></div>
+    <div className="admin-toolbar"><form onSubmit={event => { event.preventDefault(); const data = new FormData(event.currentTarget); const next = new URLSearchParams(params); const value = String(data.get('q') ?? '').trim(); value ? next.set('q', value) : next.delete('q'); setParams(next) }}><span>⌕</span><input name="q" defaultValue={query} placeholder="Search your stories" /></form><div className="status-tabs">{[['','All'],['private','Private'],['public','Public']].map(([value,label]) => <button className={status === value ? 'active' : ''} key={value} onClick={() => { const next = new URLSearchParams(params); value ? next.set('status', value) : next.delete('status'); setParams(next) }}>{label}</button>)}</div><ViewToggle targetId="admin-stories-view" storageKey="admin-stories"/><span className="story-count">{total} {total === 1 ? 'story' : 'stories'}</span></div>
     {error && <div className="admin-alert">{error}<button onClick={() => setError('')}>×</button></div>}
-    {loading ? <Loading /> : posts.length === 0 ? <EmptyState title="No stories here yet" text="Create a story and choose its visibility." /> : <div className="story-table"><div className="story-row story-table-head"><span>Story</span><span>Visibility</span><span>Last updated</span><span>Actions</span></div>{posts.map(post => <article className="story-row" key={post.id}><div className="story-identity">{post.thumbnail?.url ? <img src={post.thumbnail.url} alt="" /> : <span className="story-placeholder">L</span>}<div><Link to={`/admin/posts/${post.id}/edit`}>{post.title}</Link><small>/{post.slug}</small></div></div><span><i className={`status-dot ${post.status}`} />{post.status}</span><time>{formatDate(post.updated_at ?? post.created_at)}</time><div className="row-actions">{post.status === 'public' && <Link title="View story" to={`/blog/${post.slug}`}>↗</Link>}<Link title="Edit story" to={`/admin/posts/${post.id}/edit`}>Edit</Link><button title="Delete story" onClick={() => void remove(post)}>Delete</button></div></article>)}</div>}
+    {loading ? <Loading /> : posts.length === 0 ? <EmptyState title="No stories here yet" text="Create a story and choose its visibility." /> : <div className="story-table" id="admin-stories-view"><div className="story-row story-table-head"><span>Story</span><span>Visibility</span><span>Last updated</span><span>Actions</span></div>{posts.map(post => <article className="story-row" key={post.id}><div className="story-identity">{post.thumbnail?.url ? <img src={post.thumbnail.url} alt="" /> : <span className="story-placeholder">L</span>}<div><Link to={`/admin/posts/${post.id}/edit`}>{post.title}</Link><small>/{post.slug}</small></div></div><span><i className={`status-dot ${post.status}`} />{post.status}</span><time>{formatDate(post.updated_at ?? post.created_at)}</time><div className="row-actions">{post.status === 'public' && <Link title="View story" to={`/blog/${post.slug}`}>↗</Link>}<Link title="Edit story" to={`/admin/posts/${post.id}/edit`}>Edit</Link><button title="Delete story" onClick={() => void remove(post)}>Delete</button></div></article>)}</div>}
     <Pagination page={page} total={total} onPage={next => { const value = new URLSearchParams(params); next > 1 ? value.set('page', String(next)) : value.delete('page'); setParams(value) }} />
   </section></Layout></AdminGuard>
 }
@@ -94,6 +96,7 @@ function TagSelector({ tags, selected, onTagsChange, onSelectedChange, onError }
   async function saveTag(tag: Tag) {
     const name = editName.trim()
     if (name.length < 2 || busy) return
+    if(!await confirmAction({title:'Rename tag?',message:`“${tag.name}” will be renamed to “${name}”.`,confirmLabel:'Rename tag'}))return
     setBusy(true); onError('')
     try {
       const saved = await api.updateTag(tag.id, { name, slug: makeSlug(name) })
@@ -102,7 +105,7 @@ function TagSelector({ tags, selected, onTagsChange, onSelectedChange, onError }
     finally { setBusy(false) }
   }
   async function removeTag(tag: Tag) {
-    if (!window.confirm(`Delete tag “${tag.name}”? It will be removed from the tag library.`)) return
+    if (!await confirmAction({title:'Delete tag?',message:`“${tag.name}” will be permanently removed from the tag library.`,confirmLabel:'Delete tag',danger:true})) return
     setBusy(true); onError('')
     try {
       await api.deleteTag(tag.id); onTagsChange(tags.filter(item => item.id !== tag.id)); onSelectedChange(selected.filter(id => id !== tag.id)); if (editing === tag.id) setEditing(null); toast('Tag deleted successfully.')
@@ -178,6 +181,7 @@ export function PostEditorPage() {
   }
 
   async function save() {
+    if(id&&!await confirmAction({title:'Save story changes?',message:'The current story will be updated with your latest changes.',confirmLabel:'Save story'}))return
     setSaving(true); setError('')
     try {
       await autosave.current?.flush()
@@ -280,8 +284,8 @@ export function AdminCommentsPage() {
   const {user,loading:authLoading}=useAuth();const[comments,setComments]=useState<Comment[]>([]);const[loading,setLoading]=useState(true);const[error,setError]=useState('');const[filter,setFilter]=useState('all');const[busy,setBusy]=useState('');const toast=useToast()
   useEffect(()=>{if(user?.role==='admin')api.adminComments().then(setComments).catch(err=>setError(err instanceof Error?err.message:'Unable to load comments')).finally(()=>setLoading(false))},[user])
   if(authLoading)return <Layout><Loading/></Layout>;if(!user)return <Navigate to="/login" replace/>;if(user.role!=='admin')return <Navigate to="/profile" replace/>
-  async function status(comment:Comment,next:string){setBusy(comment.id);setError('');try{await api.updateCommentStatus(comment.id,next);setComments(current=>current.map(item=>item.id===comment.id?{...item,status:next}:item));toast(`Comment marked ${next}.`)}catch(err){setError(err instanceof Error?err.message:'Unable to update comment')}finally{setBusy('')}}
-  async function remove(comment:Comment){if(!window.confirm('Permanently delete this comment?'))return;setBusy(comment.id);try{await api.deleteAdminComment(comment.id);setComments(current=>current.filter(item=>item.id!==comment.id));toast('Comment deleted.')}catch(err){setError(err instanceof Error?err.message:'Unable to delete comment')}finally{setBusy('')}}
+  async function status(comment:Comment,next:string){if(!await confirmAction({title:`${next==='approved'?'Approve':'Reject'} comment?`,message:`This comment will be marked as ${next}.`,confirmLabel:next==='approved'?'Approve':'Reject'}))return;setBusy(comment.id);setError('');try{await api.updateCommentStatus(comment.id,next);setComments(current=>current.map(item=>item.id===comment.id?{...item,status:next}:item));toast(`Comment marked ${next}.`)}catch(err){setError(err instanceof Error?err.message:'Unable to update comment')}finally{setBusy('')}}
+  async function remove(comment:Comment){if(!await confirmAction({title:'Delete comment?',message:'This comment will be permanently deleted.',confirmLabel:'Delete comment',danger:true}))return;setBusy(comment.id);try{await api.deleteAdminComment(comment.id);setComments(current=>current.filter(item=>item.id!==comment.id));toast('Comment deleted.')}catch(err){setError(err instanceof Error?err.message:'Unable to delete comment')}finally{setBusy('')}}
   const visible=filter==='all'?comments:comments.filter(comment=>comment.status===filter)
-  return <Layout><section className="admin comment-moderation container"><header className="admin-heading"><div><span className="eyebrow">COMMUNITY</span><h1>Moderate comments</h1><p>Review responses before they become part of the conversation.</p></div><Link to="/admin/dashboard">← Dashboard</Link></header><div className="status-tabs">{['all','pending','approved','rejected'].map(value=><button key={value} className={filter===value?'active':''} onClick={()=>setFilter(value)}>{value} ({value==='all'?comments.length:comments.filter(item=>item.status===value).length})</button>)}</div>{error&&<div className="admin-alert">{error}</div>}{loading?<Loading/>:!visible.length?<EmptyState title="No comments in this queue" text="Try another moderation status."/>:<div className="comment-queue">{visible.map(comment=><article key={comment.id}><header><strong>{comment.user?.name??'Reader'}</strong><span className={`profile-status ${comment.status}`}>{comment.status}</span><time>{formatDate(comment.created_at)}</time></header><p>{comment.content}</p><footer><button disabled={busy===comment.id} onClick={()=>void status(comment,'approved')}>Approve</button><button disabled={busy===comment.id} onClick={()=>void status(comment,'rejected')}>Reject</button><button className="danger" disabled={busy===comment.id} onClick={()=>void remove(comment)}>Delete</button></footer></article>)}</div>}</section></Layout>
+  return <Layout><section className="admin comment-moderation container"><header className="admin-heading"><div><span className="eyebrow">COMMUNITY</span><h1>Moderate comments</h1><p>Review responses before they become part of the conversation.</p></div><Link to="/admin/dashboard">← Dashboard</Link></header><div className="status-tabs">{['all','pending','approved','rejected'].map(value=><button key={value} className={filter===value?'active':''} onClick={()=>setFilter(value)}>{value} ({value==='all'?comments.length:comments.filter(item=>item.status===value).length})</button>)}</div><div className="comment-view-tools"><ViewToggle targetId="comments-view" storageKey="comments"/></div>{error&&<div className="admin-alert">{error}</div>}{loading?<Loading/>:!visible.length?<EmptyState title="No comments in this queue" text="Try another moderation status."/>:<div className="comment-queue" id="comments-view">{visible.map(comment=><article key={comment.id}><header><strong>{comment.user?.name??'Reader'}</strong><span className={`profile-status ${comment.status}`}>{comment.status}</span><time>{formatDate(comment.created_at)}</time></header><p>{comment.content}</p><footer><button disabled={busy===comment.id} onClick={()=>void status(comment,'approved')}>Approve</button><button disabled={busy===comment.id} onClick={()=>void status(comment,'rejected')}>Reject</button><button className="danger" disabled={busy===comment.id} onClick={()=>void remove(comment)}>Delete</button></footer></article>)}</div>}</section></Layout>
 }

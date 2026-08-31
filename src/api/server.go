@@ -42,16 +42,18 @@ type Server struct {
 	follows         repository.FollowRepository
 	series          seriesdomain.Service
 	recommendations *recommendation.Service
+	db              *mongo.Database
 	cfg             config.Config
 }
 
-func New(cfg config.Config, a user.Service, p post.Service, c comment.Service, t taxonomy.Service, series seriesdomain.Service, recommendations *recommendation.Service, st store.Storage, follows repository.FollowRepository, bookmarks ...repository.BookmarkRepository) *Server {
+func New(cfg config.Config, a user.Service, p post.Service, c comment.Service, t taxonomy.Service, series seriesdomain.Service, recommendations *recommendation.Service, st store.Storage, follows repository.FollowRepository, bookmarks repository.BookmarkRepository, databases ...*mongo.Database) *Server {
 	if cfg.CommentRateLimit < 1 {
 		cfg.CommentRateLimit = 6
 	}
 	s := &Server{auth: a, posts: p, comments: c, taxonomy: t, series: series, recommendations: recommendations, storage: st, follows: follows, cfg: cfg}
-	if len(bookmarks) > 0 {
-		s.bookmarks = bookmarks[0]
+	s.bookmarks = bookmarks
+	if len(databases) > 0 {
+		s.db = databases[0]
 	}
 	s.App = fiber.New(fiber.Config{
 		ErrorHandler:   s.errors,
@@ -93,6 +95,11 @@ func (s *Server) routes() {
 	api.Get("/authors/:username", s.publicAuthor)
 	api.Get("/authors/:username/follow", s.authorFollowStatus)
 	api.Get("/recommendations", s.contextRecommendations)
+	api.Get("/discussions", s.listDiscussions)
+	api.Get("/discussions/:id", s.getDiscussion)
+	api.Post("/discussions", s.requireAuth, s.createDiscussion)
+	api.Post("/discussions/:id/comments", s.requireAuth, s.commentDiscussion)
+	api.Put("/discussions/:id/interested", s.requireAuth, s.toggleDiscussionInterest)
 	commentLimiter := limiter.New(limiter.Config{Max: s.cfg.CommentRateLimit, Expiration: time.Minute, KeyGenerator: func(c *fiber.Ctx) string {
 		if id, ok := c.Locals("user_id").(primitive.ObjectID); ok {
 			return id.Hex()
@@ -133,6 +140,10 @@ func (s *Server) routes() {
 	mine.Put("/series/:id/posts", s.setSeriesPosts)
 	mine.Put("/authors/:authorId/follow", s.followAuthor)
 	mine.Get("/recommendations", s.personalRecommendations)
+	mine.Get("/todos", s.listTodos)
+	mine.Post("/todos", s.createTodo)
+	mine.Put("/todos/:id", s.updateTodo)
+	mine.Delete("/todos/:id", s.deleteTodo)
 	mine.Delete("/authors/:authorId/follow", s.unfollowAuthor)
 	mine.Put("/bookmarks/:postId", s.addBookmark)
 	mine.Delete("/bookmarks/:postId", s.removeBookmark)

@@ -179,3 +179,33 @@ type SeriesPost struct {
 	PostID   primitive.ObjectID `bson:"post_id" json:"post_id"`
 	Order    int                `bson:"order" json:"order"`
 }
+type Todo struct {
+	ID        primitive.ObjectID `bson:"_id,omitempty" json:"id"`
+	UserID    primitive.ObjectID `bson:"user_id" json:"-"`
+	Title     string             `bson:"title" json:"title"`
+	Notes     string             `bson:"notes,omitempty" json:"notes,omitempty"`
+	Completed bool               `bson:"completed" json:"completed"`
+	CreatedAt time.Time          `bson:"created_at" json:"created_at"`
+	UpdatedAt time.Time          `bson:"updated_at" json:"updated_at"`
+}
+type DiscussionComment struct {
+	ID        primitive.ObjectID `bson:"_id" json:"id"`
+	UserID    primitive.ObjectID `bson:"user_id" json:"user_id"`
+	Content   string             `bson:"content" json:"content"`
+	CreatedAt time.Time          `bson:"created_at" json:"created_at"`
+	User      *PublicUserDTO     `bson:"-" json:"user,omitempty"`
+}
+type Discussion struct {
+	ID            primitive.ObjectID   `bson:"_id,omitempty" json:"id"`
+	AuthorID      primitive.ObjectID   `bson:"author_id" json:"author_id"`
+	Title         string               `bson:"title" json:"title"`
+	Content       string               `bson:"content" json:"content"`
+	InterestedIDs []primitive.ObjectID `bson:"interested_ids,omitempty" json:"-"`
+	Comments      []DiscussionComment  `bson:"comments,omitempty" json:"comments"`
+	CreatedAt     time.Time            `bson:"created_at" json:"created_at"`
+	UpdatedAt     time.Time            `bson:"updated_at" json:"updated_at"`
+	Author        *PublicUserDTO       `bson:"-" json:"author,omitempty"`
+	Interested    bool                 `bson:"-" json:"interested"`
+	InterestCount int                  `bson:"-" json:"interest_count"`
+	CommentCount  int                  `bson:"-" json:"comment_count"`
+}

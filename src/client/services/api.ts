@@ -1,4 +1,4 @@
-import type { AuthorPageData, Category, Comment, Dashboard, FollowState, Media, Page, Post, PostDraft, PostDraftResponse, PostInput, PostVersion, Reaction, ReactionType, Series, SeriesInput, SocialLinks, Tag, User } from '../types'
+import type { AuthorPageData, Category, Comment, Dashboard, Discussion, DiscussionComment, FollowState, Media, Page, Post, PostDraft, PostDraftResponse, PostInput, PostVersion, Reaction, ReactionType, Series, SeriesInput, SocialLinks, Tag, Todo, User } from '../types'
 
 const API_ORIGIN = import.meta.env.VITE_API_ORIGIN ?? (import.meta.env.DEV ? 'http://localhost:8088' : '')
 const API = `${API_ORIGIN}/api`
@@ -111,4 +111,13 @@ export const api = {
   updateAuthorProfile: (bio:string,socialLinks:SocialLinks) => request<User>('/me/author-profile',{method:'PUT',body:JSON.stringify({bio,social_links:socialLinks})}),
   recommendations: (postSlug:string,recent:string[]) => request<Post[]>(`/recommendations?post=${encodeURIComponent(postSlug)}&exclude=${encodeURIComponent(recent.join(','))}`),
   personalRecommendations: (recent:string[]) => request<Post[]>(`/me/recommendations?exclude=${encodeURIComponent(recent.join(','))}`),
+  todos: (query='') => request<Page<Todo>>(`/me/todos${query}`),
+  createTodo: (title:string,notes:string) => request<Todo>('/me/todos',{method:'POST',body:JSON.stringify({title,notes})}),
+  updateTodo: (todo:Pick<Todo,'id'|'title'|'notes'|'completed'>) => request<Todo>(`/me/todos/${todo.id}`,{method:'PUT',body:JSON.stringify(todo)}),
+  deleteTodo: (id:string) => request<void>(`/me/todos/${id}`,{method:'DELETE'}),
+  discussions: (query='') => request<Page<Discussion>>(`/discussions${query}`),
+  discussion: (id:string) => request<Discussion>(`/discussions/${id}`),
+  createDiscussion: (title:string,content:string) => request<Discussion>('/discussions',{method:'POST',body:JSON.stringify({title,content})}),
+  commentDiscussion: (id:string,content:string) => request<DiscussionComment>(`/discussions/${id}/comments`,{method:'POST',body:JSON.stringify({content})}),
+  toggleDiscussionInterest: (id:string) => request<{interested:boolean;interest_count:number}>(`/discussions/${id}/interested`,{method:'PUT'}),
 }

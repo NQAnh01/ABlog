@@ -50,7 +50,7 @@ func main() {
 		}
 		objectStorage = cloudinaryStorage
 	}
-	server := api.New(cfg, auth, posts, comments, taxonomies, seriesService, recommendations, objectStorage, repos.Follows, repos.Bookmarks)
+	server := api.New(cfg, auth, posts, comments, taxonomies, seriesService, recommendations, objectStorage, repos.Follows, repos.Bookmarks, repos.DB)
 	listener, err := net.Listen("tcp4", ":"+cfg.Port)
 	if err != nil {
 		log.Fatalf("listen on :%s: %v", cfg.Port, err)

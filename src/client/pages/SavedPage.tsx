@@ -6,6 +6,7 @@ import { useAuth } from '../hooks/useAuth'
 import { useBookmarks } from '../hooks/useBookmarks'
 import { api } from '../services/api'
 import type { Post } from '../types'
+import { ViewToggle } from '../components/ViewToggle'
 
 export function SavedPage() {
   const { user, loading: authLoading } = useAuth()
@@ -26,10 +27,10 @@ export function SavedPage() {
   if (!user) return <Navigate to="/login" replace />
 
   return <Layout dark><section className="listing saved-stories container"><header className="listing-head">
-    <div><span className="eyebrow">YOUR READING LIST</span><h1>Saved Stories <sup>{posts.length}</sup></h1><p>Stories you've bookmarked for later reading.</p></div>
+    <div><span className="eyebrow">YOUR READING LIST</span><h1>Saved Stories <sup>{posts.length}</sup></h1><p>Stories you've bookmarked for later reading.</p></div><ViewToggle targetId="saved-stories-view" storageKey="saved-stories"/>
   </header>
     {error ? <ErrorState message={error} /> : loading ? <Loading /> : posts.length === 0
       ? <EmptyState title="No saved stories yet" text="Bookmark stories you love and they'll appear here." />
-      : <div className="post-grid">{posts.map(p => <BlogCard key={p.id} post={p} />)}</div>}
+      : <div className="post-grid" id="saved-stories-view">{posts.map(p => <BlogCard key={p.id} post={p} />)}</div>}
   </section></Layout>
 }

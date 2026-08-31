@@ -25,3 +25,6 @@ export type Series = { id:string;title:string;slug:string;description:string;cov
 export type SeriesInput = Pick<Series,'title'|'description'|'cover_image'|'status'|'is_featured'>
 export type AuthorPageData = { author:PublicUser;posts:Post[];series:Series[];post_count:number;follower_count:number }
 export type FollowState = { following:boolean;follower_count:number }
+export type Todo = { id:string;title:string;notes?:string;completed:boolean;created_at:string;updated_at:string }
+export type DiscussionComment = { id:string;user_id:string;content:string;created_at:string;user?:PublicUser }
+export type Discussion = { id:string;author_id:string;title:string;content:string;author?:PublicUser;comments?:DiscussionComment[];interested:boolean;interest_count:number;comment_count:number;created_at:string;updated_at:string }

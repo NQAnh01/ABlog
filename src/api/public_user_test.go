@@ -122,7 +122,7 @@ func publicUserTestServer() *Server {
 	seriesService := seriesdomain.Service{Repo: seriesRepo, Posts: posts, Users: users}
 	recommendations := &recommendation.Service{Posts: posts, Series: seriesRepo}
 	auth := user.Service{Users: users, Sessions: apiSessions{}, Secret: []byte("public-user-test-secret"), AccessTTL: time.Hour, RefreshTTL: time.Hour}
-	return New(config.Config{ClientOrigin: "http://localhost:5173", JWTSecret: "public-user-test-secret"}, auth, post.Service{Repo: posts}, comment.Service{Comments: comments, Posts: posts}, taxonomy.Service{Repo: apiTaxonomy{}}, seriesService, recommendations, apiStorage{}, publicFollows{})
+	return New(config.Config{ClientOrigin: "http://localhost:5173", JWTSecret: "public-user-test-secret"}, auth, post.Service{Repo: posts}, comment.Service{Comments: comments, Posts: posts}, taxonomy.Service{Repo: apiTaxonomy{}}, seriesService, recommendations, apiStorage{}, publicFollows{}, nil)
 }
 
 func publicUserAllowedKeys() map[string]bool {
