@@ -8,6 +8,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"lumina/src/domain/model"
 	"lumina/src/domain/repository"
+	"strings"
 	"time"
 )
 
@@ -132,8 +133,8 @@ func (r *Users) FindByIDs(ctx context.Context, ids []primitive.ObjectID) ([]mode
 	err = cursor.All(ctx, &values)
 	return values, err
 }
-func (r *Users) UpdateProfile(ctx context.Context, id primitive.ObjectID, name, phone string) error {
-	_, e := r.c.UpdateByID(ctx, id, bson.M{"$set": bson.M{"name": name, "phone": phone, "updated_at": time.Now().UTC()}})
+func (r *Users) UpdateProfile(ctx context.Context, id primitive.ObjectID, name, phone string, interests []primitive.ObjectID) error {
+	_, e := r.c.UpdateByID(ctx, id, bson.M{"$set": bson.M{"name": name, "phone": phone, "interest_category_ids": interests, "updated_at": time.Now().UTC()}})
 	return e
 }
 func (r *Users) UpdatePassword(ctx context.Context, id primitive.ObjectID, hash string) error {
@@ -193,8 +194,16 @@ func (r *Posts) List(ctx context.Context, f repository.PostFilter) ([]model.Post
 		}
 	}
 	if f.Category != "" {
-		if id, err := primitive.ObjectIDFromHex(f.Category); err == nil {
-			q["category_ids"] = id
+		ids := []primitive.ObjectID{}
+		for _, raw := range strings.Split(f.Category, ",") {
+			if id, err := primitive.ObjectIDFromHex(strings.TrimSpace(raw)); err == nil {
+				ids = append(ids, id)
+			}
+		}
+		if len(ids) == 1 {
+			q["category_ids"] = ids[0]
+		} else if len(ids) > 1 {
+			q["category_ids"] = bson.M{"$in": ids}
 		}
 	}
 	if !f.DateFrom.IsZero() || !f.DateTo.IsZero() {

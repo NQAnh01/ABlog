@@ -33,6 +33,10 @@ export default function App() {
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'auto' })
+    const routeTitles:Record<string,string>={'/':'Home','/blog':'Explore','/login':'Sign in','/register':'Create account','/forgot-password':'Reset password','/reset-password':'Reset password','/profile':'My Stories','/profile/settings':'Account settings','/saved':'Reading List','/todos':'Todos','/discussions':'Discussions','/admin/dashboard':'Dashboard','/admin/posts':'Manage stories','/admin/posts/create':'New story','/admin/comments':'Comments','/admin/series':'Series'}
+    const exact=routeTitles[location.pathname]
+    const dynamic=location.pathname.startsWith('/blog/')?'Loading story':location.pathname.startsWith('/stories/')?'Story preview':location.pathname.startsWith('/author/')?'Author':location.pathname.startsWith('/series/')?'Series':location.pathname.startsWith('/categories/')?'Category':location.pathname.startsWith('/tags/')?'Tag':location.pathname.startsWith('/discussions/')?'Discussion':location.pathname.includes('/edit')?'Edit story':location.pathname.includes('/versions')?'Version history':''
+    document.title=`${exact||dynamic||'Lumina'} — Lumina`
   }, [location.pathname])
 
   return <>

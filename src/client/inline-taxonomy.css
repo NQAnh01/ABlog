@@ -44,6 +44,11 @@
 .category-options { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; }
 .category-options label { min-width: 0; }
 .category-options span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.taxonomy-tooltip { position: relative; }
+.taxonomy-tooltip:after { content: attr(data-tooltip); position: absolute; z-index: 30; bottom: calc(100% + 8px); left: 50%; width: max-content; max-width: 250px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 7px; background: #111827; color: #f8fafc; box-shadow: 0 8px 22px rgba(2,6,23,.24); font-size: 11px; font-weight: 650; line-height: 1.3; overflow-wrap: anywhere; pointer-events: none; opacity: 0; transform: translate(-50%,4px); transition: opacity .15s,transform .15s; }
+.taxonomy-tooltip:hover:after, .taxonomy-tooltip:focus-within:after { opacity: 1; transform: translate(-50%,0); }
+.tag-dropdown .taxonomy-tooltip:after { bottom: auto; top: 50%; left: auto; right: 10px; max-width: 75%; transform: translateY(-50%); }
+.tag-dropdown .taxonomy-tooltip:hover:after, .tag-dropdown .taxonomy-tooltip:focus-visible:after { transform: translateY(-50%); }
 
 .manage-tags-button { padding: 4px 0 !important; color: #1f108e !important; font-size: 12px !important; }
 .selected-tags { display: flex; min-height: 35px; flex-wrap: wrap; gap: 7px; margin-bottom: 11px; }
@@ -52,14 +57,20 @@
 .selected-tags > small { align-self: center; color: #908f9e; font-size: 12px; }
 .tag-combobox { position: relative; }
 .tag-combobox > input { width: 100%; padding: 11px 34px 11px 12px; border: 1px solid #c8cbd7; border-radius: 9px; outline: 0; background: #f8f9ff; color: #172235; font-size: 13px; }
-.tag-combobox:after { content: '⌕'; position: absolute; top: 9px; right: 12px; color: #777584; pointer-events: none; }
+.tag-search-icon { position: absolute; top: 50%; right: 11px; display: grid; width: 17px; height: 17px; place-items: center; color: #777584; pointer-events: none; transform: translateY(-50%); }
+.tag-search-icon svg { width: 16px; height: 16px; stroke-width: 2; }
+.tag-search-icon.loading svg, .creating-tag svg { animation: spin .8s linear infinite; }
 .tag-combobox > input:focus { border-color: #818cf8; box-shadow: 0 0 0 3px rgba(129,140,248,.13); }
+.tag-combobox > input:disabled { cursor: wait; opacity: .7; }
 .tag-dropdown { position: absolute; z-index: 8; top: calc(100% + 6px); right: 0; left: 0; max-height: 250px; overflow-y: auto; padding: 6px; border: 1px solid #d9dbe7; border-radius: 11px; background: #fff; box-shadow: 0 15px 35px rgba(13,28,46,.18); }
 .tag-dropdown button { display: block; width: 100%; padding: 9px 10px; border: 0; border-radius: 7px; background: transparent; color: #333b4e; text-align: left; }
 .tag-dropdown button:hover { background: #f0efff; color: #1f108e; }
+.tag-dropdown button:disabled { cursor: wait; opacity: .65; }
 .tag-dropdown small { color: #908f9e; font-size: 10px; }
 .tag-dropdown p { margin: 8px 10px; color: #908f9e; font-size: 12px; }
 .tag-dropdown .create-tag-option { margin-top: 3px; border-top: 1px solid #ececf2; border-radius: 0 0 7px 7px; color: #1f108e; font-weight: 700; }
+.creating-tag { display: flex; align-items: center; gap: 7px; }
+.creating-tag svg { width: 14px; height: 14px; }
 .tag-manager { max-height: 310px; overflow-y: auto; margin-top: 16px; padding-top: 14px; border-top: 1px solid #ececf2; }
 .tag-manager > p { margin: 0 0 11px; color: #777584; font-size: 11px; line-height: 1.45; }
 .tag-manager-row { display: flex; align-items: center; gap: 6px; min-height: 36px; border-bottom: 1px solid #f0f0f4; }

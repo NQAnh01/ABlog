@@ -11,7 +11,7 @@ type UserRepository interface {
 	Create(context.Context, *model.User) error
 	FindByEmail(context.Context, string) (*model.User, error)
 	FindByID(context.Context, primitive.ObjectID) (*model.User, error)
-	UpdateProfile(context.Context, primitive.ObjectID, string, string) error
+	UpdateProfile(context.Context, primitive.ObjectID, string, string, []primitive.ObjectID) error
 	UpdatePassword(context.Context, primitive.ObjectID, string) error
 	UpdateAvatar(context.Context, primitive.ObjectID, string) error
 }

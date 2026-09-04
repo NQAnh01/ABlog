@@ -75,7 +75,7 @@ func normalize(p *model.Post) error {
 	if p.Slug == "" {
 		p.Slug = slug(p.Title)
 	}
-	if utf8.RuneCountInString(p.Title) < 3 || utf8.RuneCountInString(p.Title) > 180 || utf8.RuneCountInString(p.Content) < 1 {
+	if utf8.RuneCountInString(p.Title) < 3 || utf8.RuneCountInString(p.Title) > 80 || utf8.RuneCountInString(p.Content) < 1 {
 		return errors.New("title and content are required")
 	}
 	if utf8.RuneCountInString(p.Excerpt) > 320 {

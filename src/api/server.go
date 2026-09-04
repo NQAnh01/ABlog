@@ -303,9 +303,10 @@ func (s *Server) removeBookmark(c *fiber.Ctx) error {
 }
 
 type credentials struct {
-	Name     string `json:"name"`
-	Email    string `json:"email"`
-	Password string `json:"password"`
+	Name                string   `json:"name"`
+	Email               string   `json:"email"`
+	Password            string   `json:"password"`
+	InterestCategoryIDs []string `json:"interest_category_ids"`
 }
 
 func (s *Server) register(c *fiber.Ctx) error {
@@ -313,7 +314,13 @@ func (s *Server) register(c *fiber.Ctx) error {
 	if e := c.BodyParser(&in); e != nil {
 		return bad("INVALID_REQUEST", "Invalid request")
 	}
-	t, e := s.auth.Register(c.UserContext(), in.Name, in.Email, in.Password)
+	interests := make([]primitive.ObjectID, 0, len(in.InterestCategoryIDs))
+	for _, raw := range in.InterestCategoryIDs {
+		if id, err := primitive.ObjectIDFromHex(raw); err == nil {
+			interests = append(interests, id)
+		}
+	}
+	t, e := s.auth.Register(c.UserContext(), in.Name, in.Email, in.Password, interests)
 	if e != nil {
 		return fiber.NewError(422, e.Error())
 	}
@@ -447,13 +454,20 @@ func (s *Server) adminListPosts(c *fiber.Ctx) error {
 }
 func (s *Server) updateProfile(c *fiber.Ctx) error {
 	var input struct {
-		Name  string `json:"name"`
-		Phone string `json:"phone"`
+		Name                string   `json:"name"`
+		Phone               string   `json:"phone"`
+		InterestCategoryIDs []string `json:"interest_category_ids"`
 	}
 	if err := c.BodyParser(&input); err != nil {
 		return bad("INVALID_REQUEST", "Invalid request")
 	}
-	u, err := s.auth.UpdateProfile(c.UserContext(), c.Locals("user_id").(primitive.ObjectID), input.Name, input.Phone)
+	interests := make([]primitive.ObjectID, 0, len(input.InterestCategoryIDs))
+	for _, raw := range input.InterestCategoryIDs {
+		if id, parseErr := primitive.ObjectIDFromHex(raw); parseErr == nil {
+			interests = append(interests, id)
+		}
+	}
+	u, err := s.auth.UpdateProfile(c.UserContext(), c.Locals("user_id").(primitive.ObjectID), input.Name, input.Phone, interests)
 	if err != nil {
 		return fiber.NewError(422, err.Error())
 	}

@@ -6,18 +6,19 @@ import (
 )
 
 type User struct {
-	ID           primitive.ObjectID `bson:"_id,omitempty" json:"id"`
-	Email        string             `bson:"email" json:"email"`
-	PasswordHash string             `bson:"password_hash" json:"-"`
-	Name         string             `bson:"name" json:"name"`
-	Avatar       string             `bson:"avatar,omitempty" json:"avatar,omitempty"`
-	Username     string             `bson:"username,omitempty" json:"username,omitempty"`
-	Bio          string             `bson:"bio,omitempty" json:"bio,omitempty"`
-	SocialLinks  SocialLinks        `bson:"social_links,omitempty" json:"social_links,omitempty"`
-	Phone        string             `bson:"phone,omitempty" json:"phone,omitempty"`
-	Role         string             `bson:"role" json:"role"`
-	CreatedAt    time.Time          `bson:"created_at" json:"created_at"`
-	UpdatedAt    time.Time          `bson:"updated_at" json:"updated_at"`
+	ID                  primitive.ObjectID   `bson:"_id,omitempty" json:"id"`
+	Email               string               `bson:"email" json:"email"`
+	PasswordHash        string               `bson:"password_hash" json:"-"`
+	Name                string               `bson:"name" json:"name"`
+	Avatar              string               `bson:"avatar,omitempty" json:"avatar,omitempty"`
+	Username            string               `bson:"username,omitempty" json:"username,omitempty"`
+	Bio                 string               `bson:"bio,omitempty" json:"bio,omitempty"`
+	SocialLinks         SocialLinks          `bson:"social_links,omitempty" json:"social_links,omitempty"`
+	Phone               string               `bson:"phone,omitempty" json:"phone,omitempty"`
+	InterestCategoryIDs []primitive.ObjectID `bson:"interest_category_ids,omitempty" json:"interest_category_ids,omitempty"`
+	Role                string               `bson:"role" json:"role"`
+	CreatedAt           time.Time            `bson:"created_at" json:"created_at"`
+	UpdatedAt           time.Time            `bson:"updated_at" json:"updated_at"`
 }
 
 // PublicUserDTO is the only user representation that may be embedded in

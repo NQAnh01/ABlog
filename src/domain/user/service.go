@@ -71,7 +71,7 @@ type Tokens struct {
 	User            *model.User
 }
 
-func (s Service) Register(ctx context.Context, name, email, password string) (*Tokens, error) {
+func (s Service) Register(ctx context.Context, name, email, password string, interests []primitive.ObjectID) (*Tokens, error) {
 	email = strings.ToLower(strings.TrimSpace(email))
 	name = strings.TrimSpace(name)
 	if _, e := mail.ParseAddress(email); e != nil || len(password) < 8 || len(name) < 2 {
@@ -85,7 +85,7 @@ func (s Service) Register(ctx context.Context, name, email, password string) (*T
 		return nil, e
 	}
 	now := time.Now().UTC()
-	u := &model.User{ID: primitive.NewObjectID(), Email: email, PasswordHash: string(hash), Name: name, Role: "user", CreatedAt: now, UpdatedAt: now}
+	u := &model.User{ID: primitive.NewObjectID(), Email: email, PasswordHash: string(hash), Name: name, Role: "user", InterestCategoryIDs: interests, CreatedAt: now, UpdatedAt: now}
 	u.Username = "author-" + u.ID.Hex()
 	if e = s.Users.Create(ctx, u); e != nil {
 		return nil, e
@@ -139,7 +139,7 @@ func (s Service) Logout(ctx context.Context, token string) error {
 
 var phonePattern = regexp.MustCompile(`^[+0-9 ()-]{7,20}$`)
 
-func (s Service) UpdateProfile(ctx context.Context, id primitive.ObjectID, name, phone string) (*model.User, error) {
+func (s Service) UpdateProfile(ctx context.Context, id primitive.ObjectID, name, phone string, interests []primitive.ObjectID) (*model.User, error) {
 	name, phone = strings.TrimSpace(name), strings.TrimSpace(phone)
 	if len(name) < 2 || len(name) > 80 {
 		return nil, errors.New("name must be between 2 and 80 characters")
@@ -147,7 +147,7 @@ func (s Service) UpdateProfile(ctx context.Context, id primitive.ObjectID, name,
 	if phone != "" && !phonePattern.MatchString(phone) {
 		return nil, errors.New("invalid phone number")
 	}
-	if err := s.Users.UpdateProfile(ctx, id, name, phone); err != nil {
+	if err := s.Users.UpdateProfile(ctx, id, name, phone, interests); err != nil {
 		return nil, err
 	}
 	return s.Users.FindByID(ctx, id)

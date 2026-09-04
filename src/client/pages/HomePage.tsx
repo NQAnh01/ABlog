@@ -41,11 +41,13 @@ export function HomePage() {
     const from=new Date(Date.now()-7*24*60*60*1000).toISOString().slice(0,10)
     Promise.all([api.posts('?featured=true&limit=1'),api.posts('?limit=100'),api.posts(`?from=${from}&limit=5`).catch(()=>({items:[],page:1,limit:5,total:0})),api.categories().catch(()=>[]),api.series(true).catch(()=>[])]).then(([featuredPage,recentPage,trendingPage,categoryData,seriesData])=>{
       if(!active)return
-      const recent=recentPage.items??[]
-      setFeatured(featuredPage.items?.[0]??recent[0]??null);setPosts(recent);setTrending(trendingPage.items??[]);setCategories(categoryData??[]);setFeaturedSeries(seriesData??[])
+      const allRecent=recentPage.items??[],interests=user?.interest_category_ids??[]
+      const recent=interests.length?allRecent.filter(post=>post.category_ids?.some(id=>interests.includes(id))):allRecent
+      const featuredCandidates=featuredPage.items??[],featuredMatch=featuredCandidates.find(post=>!interests.length||post.category_ids?.some(id=>interests.includes(id)))
+      setFeatured(featuredMatch??recent[0]??null);setPosts(recent);setTrending(interests.length?(trendingPage.items??[]).filter(post=>post.category_ids?.some(id=>interests.includes(id))):trendingPage.items??[]);setCategories((categoryData??[]).filter(category=>!interests.length||interests.includes(category.id)));setFeaturedSeries(seriesData??[])
     }).catch(err=>{if(active)setError(err instanceof Error?err.message:'Unable to load the journal')}).finally(()=>{if(active)setLoading(false)})
     return()=>{active=false}
-  },[])
+  },[user?.interest_category_ids?.join(',')])
   useEffect(()=>{if(!user){setForYou([]);return};let active=true;api.personalRecommendations(recentPostIds()).then(values=>{if(active)setForYou(values)}).catch(()=>null);return()=>{active=false}},[user])
 
   const picks=posts.filter(post=>post.id!==featured?.id).slice(0,3)

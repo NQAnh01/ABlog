@@ -1,7 +1,7 @@
 export type SocialLink = { name:string;url:string }
 export type SocialLinks = { website?:string;x?:string;linkedin?:string;links?:SocialLink[] }
 export type PublicUser = { id:string;username?:string;name:string;avatar?:string;bio?:string;social_links?:SocialLinks }
-export type User = PublicUser & { email:string;phone?:string;role:'user'|'admin' }
+export type User = PublicUser & { email:string;phone?:string;role:'user'|'admin';interest_category_ids?:string[] }
 export type Media = { key: string; url: string }
 export type Category = { id: string; name: string; slug: string; description?: string }
 export type Tag = { id: string; name: string; slug: string }

@@ -31,10 +31,10 @@ func (f *usersFake) FindByID(_ context.Context, id primitive.ObjectID) (*model.U
 	}
 	return nil, mongo.ErrNoDocuments
 }
-func (f *usersFake) UpdateProfile(_ context.Context, id primitive.ObjectID, name, phone string) error {
+func (f *usersFake) UpdateProfile(_ context.Context, id primitive.ObjectID, name, phone string, interests []primitive.ObjectID) error {
 	for _, u := range f.byEmail {
 		if u.ID == id {
-			u.Name, u.Phone = name, phone
+			u.Name, u.Phone, u.InterestCategoryIDs = name, phone, interests
 			return nil
 		}
 	}
@@ -87,7 +87,7 @@ func TestRegisterLoginAndParseAccess(t *testing.T) {
 	users := &usersFake{byEmail: map[string]*model.User{}}
 	sessions := &sessionsFake{items: map[string]*model.RefreshSession{}}
 	s := Service{Users: users, Sessions: sessions, Secret: []byte("test-secret"), AccessTTL: time.Minute, RefreshTTL: time.Hour}
-	tokens, e := s.Register(context.Background(), "Ada Lovelace", "ADA@example.com", "correct-horse")
+	tokens, e := s.Register(context.Background(), "Ada Lovelace", "ADA@example.com", "correct-horse", nil)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -111,18 +111,18 @@ func TestUpdateProfileAndChangePassword(t *testing.T) {
 	users := &usersFake{byEmail: map[string]*model.User{}}
 	sessions := &sessionsFake{items: map[string]*model.RefreshSession{}}
 	s := Service{Users: users, Sessions: sessions, Secret: []byte("test-secret"), AccessTTL: time.Minute, RefreshTTL: time.Hour}
-	tokens, err := s.Register(context.Background(), "Initial Name", "profile@example.com", "old-password")
+	tokens, err := s.Register(context.Background(), "Initial Name", "profile@example.com", "old-password", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	updated, err := s.UpdateProfile(context.Background(), tokens.User.ID, "Updated Name", "+84 901 234 567")
+	updated, err := s.UpdateProfile(context.Background(), tokens.User.ID, "Updated Name", "+84 901 234 567", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if updated.Name != "Updated Name" || updated.Phone != "+84 901 234 567" {
 		t.Fatalf("unexpected profile: %+v", updated)
 	}
-	if _, err = s.UpdateProfile(context.Background(), tokens.User.ID, "Updated Name", "not-a-phone"); err == nil {
+	if _, err = s.UpdateProfile(context.Background(), tokens.User.ID, "Updated Name", "not-a-phone", nil); err == nil {
 		t.Fatal("invalid phone should fail")
 	}
 	if err = s.ChangePassword(context.Background(), tokens.User.ID, "wrong-password", "new-password", "new-password"); err == nil {

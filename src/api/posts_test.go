@@ -64,9 +64,9 @@ func (f *apiUsers) UpdateAuthorProfile(_ context.Context, id primitive.ObjectID,
 	}
 	return mongo.ErrNoDocuments
 }
-func (f *apiUsers) UpdateProfile(_ context.Context, id primitive.ObjectID, name, phone string) error {
+func (f *apiUsers) UpdateProfile(_ context.Context, id primitive.ObjectID, name, phone string, interests []primitive.ObjectID) error {
 	if v, ok := f.items[id]; ok {
-		v.Name, v.Phone = name, phone
+		v.Name, v.Phone, v.InterestCategoryIDs = name, phone, interests
 		return nil
 	}
 	return mongo.ErrNoDocuments
@@ -512,13 +512,17 @@ func TestAuthenticatedWriterCanCreateAndEditTaxonomy(t *testing.T) {
 
 func TestProfileAndPasswordAPI(t *testing.T) {
 	server, _, userToken := postTestServer(t)
-	status, profile := jsonRequest(t, server, "PUT", "/api/me/profile", userToken, map[string]any{"name": "New Reader Name", "phone": "+84 901 234 567"})
+	interestID := primitive.NewObjectID()
+	status, profile := jsonRequest(t, server, "PUT", "/api/me/profile", userToken, map[string]any{"name": "New Reader Name", "phone": "+84 901 234 567", "interest_category_ids": []string{interestID.Hex()}})
 	if status != 200 {
 		t.Fatalf("profile update status=%d response=%v", status, profile)
 	}
 	data := profile["data"].(map[string]any)
 	if data["name"] != "New Reader Name" || data["phone"] != "+84 901 234 567" {
 		t.Fatalf("unexpected profile response: %v", data)
+	}
+	if values, ok := data["interest_category_ids"].([]any); !ok || len(values) != 1 || values[0] != interestID.Hex() {
+		t.Fatalf("reading interests were not saved: %v", data)
 	}
 	status, _ = jsonRequest(t, server, "PUT", "/api/me/profile", userToken, map[string]any{"name": "New Reader Name", "phone": "invalid-phone"})
 	if status != 422 {
