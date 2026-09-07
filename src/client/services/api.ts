@@ -1,10 +1,12 @@
-import type { AuthorPageData, Category, Comment, Dashboard, Discussion, DiscussionComment, FollowState, Media, Page, Post, PostDraft, PostDraftResponse, PostInput, PostVersion, Reaction, ReactionType, Series, SeriesInput, SocialLinks, Tag, Todo, User } from '../types'
+import type { AuthorPageData, Category, Comment, Dashboard, Discussion, DiscussionComment, FollowState, Media, Page, Post, PostDraft, PostDraftResponse, PostInput, PostVersion, Reaction, ReactionType, Series, SeriesInput, SocialLinks, Tag, Target, Todo, User } from '../types'
 
 const API_ORIGIN = import.meta.env.VITE_API_ORIGIN ?? (import.meta.env.DEV ? 'http://localhost:8088' : '')
 const API = `${API_ORIGIN}/api`
 let accessToken = ''
 let refreshRequest: Promise<boolean> | null = null
-const getCache = new Map<string, { expires: number; value?: unknown; pending?: Promise<unknown> }>()
+const MAX_CACHE_ENTRIES = 150
+type CacheEntry = { expires: number; staleUntil: number; accessed: number; value?: unknown; pending?: Promise<unknown> }
+const getCache = new Map<string, CacheEntry>()
 
 type Envelope<T> = { data: T; message: string }
 async function request<T>(path: string, options: RequestInit = {}, retry = true): Promise<T> {
@@ -31,25 +33,52 @@ async function request<T>(path: string, options: RequestInit = {}, retry = true)
   return ((await response.json()) as Envelope<T>).data
 }
 
-function cachedGet<T>(path: string, ttl = 30_000): Promise<T> {
-  const now = Date.now()
-  const cached = getCache.get(path)
-  if (cached?.value !== undefined && cached.expires > now) return Promise.resolve(cached.value as T)
-  if (cached?.pending) return cached.pending as Promise<T>
+function trimCache() {
+  if (getCache.size <= MAX_CACHE_ENTRIES) return
+  const oldest = [...getCache.entries()].filter(([, entry]) => !entry.pending).sort((a, b) => a[1].accessed - b[1].accessed)
+  for (const [key] of oldest.slice(0, getCache.size - MAX_CACHE_ENTRIES)) getCache.delete(key)
+}
+
+function revalidate<T>(path: string, ttl: number, staleTtl: number, previous?: CacheEntry): Promise<T> {
   const pending = request<T>(path).then(value => {
-    getCache.set(path, { value, expires: Date.now() + ttl })
+    const now = Date.now()
+    getCache.set(path, { value, expires: now + ttl, staleUntil: now + ttl + staleTtl, accessed: now })
+    trimCache()
     return value
   }).catch(error => {
-    getCache.delete(path)
+    if (previous?.value !== undefined && previous.staleUntil > Date.now()) {
+      getCache.set(path, { ...previous, pending: undefined })
+    } else getCache.delete(path)
     throw error
   })
-  getCache.set(path, { expires: now + ttl, pending })
+  getCache.set(path, { ...previous, expires: previous?.expires ?? 0, staleUntil: previous?.staleUntil ?? 0, accessed: Date.now(), pending })
+  trimCache()
   return pending
 }
 
-function invalidatePublicPosts() {
-  for (const key of getCache.keys()) if (key === '/posts' || key.startsWith('/posts?') || key.startsWith('/posts/')) getCache.delete(key)
+function cachedGet<T>(path: string, ttl = 30_000, staleTtl = ttl * 4): Promise<T> {
+  const now = Date.now()
+  const cached = getCache.get(path)
+  if (cached?.value !== undefined && cached.expires > now) {
+    cached.accessed = now
+    return Promise.resolve(cached.value as T)
+  }
+  if (cached?.pending) return cached.pending as Promise<T>
+  if (cached?.value !== undefined && cached.staleUntil > now) {
+    cached.accessed = now
+    void revalidate<T>(path, ttl, staleTtl, cached).catch(() => undefined)
+    return Promise.resolve(cached.value as T)
+  }
+  return revalidate<T>(path, ttl, staleTtl, cached)
 }
+
+function invalidateWhere(matches: (key: string) => boolean) {
+  for (const key of getCache.keys()) if (matches(key)) getCache.delete(key)
+}
+const invalidatePublicPosts = () => invalidateWhere(key => key === '/posts' || key.startsWith('/posts?') || key.startsWith('/posts/'))
+const invalidateTaxonomy = () => invalidateWhere(key => key === '/categories' || key.startsWith('/categories/') || key === '/tags' || key.startsWith('/tags/'))
+const invalidateSeries = () => invalidateWhere(key => key === '/series' || key.startsWith('/series?') || key.startsWith('/series/') || key.startsWith('/posts/') && key.endsWith('/series'))
+const invalidateAuthors = () => invalidateWhere(key => key.startsWith('/authors/'))
 
 export const api = {
   setToken(value: string) { accessToken = value },
@@ -59,8 +88,8 @@ export const api = {
   forgotPassword: (email: string) => request<{ message: string }>('/auth/forgot-password', { method: 'POST', body: JSON.stringify({ email }) }),
   resetPassword: (token: string, password: string, confirmPassword: string) => request<void>('/auth/reset-password', { method: 'POST', body: JSON.stringify({ token, password, confirm_password: confirmPassword }) }),
   me: () => request<User>('/auth/me'),
-  updateProfile: (name: string, phone: string, interestCategoryIds: string[]) => request<User>('/me/profile', { method: 'PUT', body: JSON.stringify({ name, phone, interest_category_ids: interestCategoryIds }) }),
-  uploadAvatar: (file: File) => { const form = new FormData(); form.append('file', file); return request<User>('/me/avatar', { method: 'POST', body: form }) },
+  updateProfile: (name: string, phone: string, interestCategoryIds: string[]) => request<User>('/me/profile', { method: 'PUT', body: JSON.stringify({ name, phone, interest_category_ids: interestCategoryIds }) }).then(value => { invalidateAuthors(); invalidatePublicPosts(); invalidateSeries(); return value }),
+  uploadAvatar: (file: File) => { const form = new FormData(); form.append('file', file); return request<User>('/me/avatar', { method: 'POST', body: form }).then(value => { invalidateAuthors(); invalidatePublicPosts(); invalidateSeries(); return value }) },
   changePassword: (currentPassword: string, newPassword: string, confirmPassword: string) => request<void>('/me/password', { method: 'PUT', body: JSON.stringify({ current_password: currentPassword, new_password: newPassword, confirm_password: confirmPassword }) }),
   posts: (query = '') => cachedGet<Page<Post>>(`/posts${query}`),
   post: (slug: string) => cachedGet<Post>(`/posts/${slug}`),
@@ -74,20 +103,20 @@ export const api = {
   tags: () => cachedGet<Tag[]>('/tags', 300_000),
   category: (slug: string) => cachedGet<Category>(`/categories/${slug}`, 300_000),
   tag: (slug: string) => cachedGet<Tag>(`/tags/${slug}`, 300_000),
-  createCategory: (input: Pick<Category, 'name' | 'slug' | 'description'>) => request<Category>('/me/categories', { method: 'POST', body: JSON.stringify(input) }),
-  updateCategory: (id: string, input: Pick<Category, 'name' | 'slug' | 'description'>) => request<Category>(`/me/categories/${id}`, { method: 'PUT', body: JSON.stringify(input) }),
-  createTag: (input: Pick<Tag, 'name' | 'slug'>) => request<Tag>('/me/tags', { method: 'POST', body: JSON.stringify(input) }),
-  updateTag: (id: string, input: Pick<Tag, 'name' | 'slug'>) => request<Tag>(`/me/tags/${id}`, { method: 'PUT', body: JSON.stringify(input) }),
-  deleteTag: (id: string) => request<void>(`/me/tags/${id}`, { method: 'DELETE' }),
+  createCategory: (input: Pick<Category, 'name' | 'slug' | 'description'>) => request<Category>('/me/categories', { method: 'POST', body: JSON.stringify(input) }).then(value => { invalidateTaxonomy(); return value }),
+  updateCategory: (id: string, input: Pick<Category, 'name' | 'slug' | 'description'>) => request<Category>(`/me/categories/${id}`, { method: 'PUT', body: JSON.stringify(input) }).then(value => { invalidateTaxonomy(); invalidatePublicPosts(); return value }),
+  createTag: (input: Pick<Tag, 'name' | 'slug'>) => request<Tag>('/me/tags', { method: 'POST', body: JSON.stringify(input) }).then(value => { invalidateTaxonomy(); return value }),
+  updateTag: (id: string, input: Pick<Tag, 'name' | 'slug'>) => request<Tag>(`/me/tags/${id}`, { method: 'PUT', body: JSON.stringify(input) }).then(value => { invalidateTaxonomy(); invalidatePublicPosts(); return value }),
+  deleteTag: (id: string) => request<void>(`/me/tags/${id}`, { method: 'DELETE' }).then(value => { invalidateTaxonomy(); invalidatePublicPosts(); return value }),
   myPosts: (query = '') => request<Page<Post>>(`/me/posts${query}`),
   myPost: (id: string) => request<Post>(`/me/posts/${id}`),
   postVersions: (id: string) => request<PostVersion[]>(`/me/posts/${id}/versions`),
   postDraft: (id: string) => request<PostDraftResponse | undefined>(`/me/posts/${id}/draft`),
   savePostDraft: (id: string, draft: PostDraft) => request<{ accepted: boolean; sequence: number; updated_at: string }>(`/me/posts/${id}/draft`, { method: 'PUT', body: JSON.stringify(draft) }),
   deletePostDraft: (id: string) => request<void>(`/me/posts/${id}/draft`, { method: 'DELETE' }),
-  createPost: (input: PostInput) => request<Post>('/me/posts', { method: 'POST', body: JSON.stringify(input) }).then(value => { invalidatePublicPosts(); return value }),
-  updatePost: (id: string, input: PostInput) => request<Post>(`/me/posts/${id}`, { method: 'PUT', body: JSON.stringify(input) }).then(value => { invalidatePublicPosts(); return value }),
-  deletePost: (id: string) => request<void>(`/me/posts/${id}`, { method: 'DELETE' }).then(value => { invalidatePublicPosts(); return value }),
+  createPost: (input: PostInput) => request<Post>('/me/posts', { method: 'POST', body: JSON.stringify(input) }).then(value => { invalidatePublicPosts(); invalidateAuthors(); invalidateSeries(); return value }),
+  updatePost: (id: string, input: PostInput) => request<Post>(`/me/posts/${id}`, { method: 'PUT', body: JSON.stringify(input) }).then(value => { invalidatePublicPosts(); invalidateAuthors(); invalidateSeries(); return value }),
+  deletePost: (id: string) => request<void>(`/me/posts/${id}`, { method: 'DELETE' }).then(value => { invalidatePublicPosts(); invalidateAuthors(); invalidateSeries(); return value }),
   uploadImage: (file: File) => { const form = new FormData(); form.append('file', file); return request<Media>('/me/uploads', { method: 'POST', body: form }) },
   dashboard: () => request<Dashboard>('/admin/dashboard'),
   adminComments: () => request<Comment[]>('/admin/comments'),
@@ -101,19 +130,26 @@ export const api = {
   postSeries: (slug:string) => request<Series|undefined>(`/posts/${slug}/series`),
   mySeries: () => request<Series[]>('/me/series'),
   mySeriesById: (id:string) => request<Series>(`/me/series/${id}`),
-  saveSeries: (input:SeriesInput,id='') => request<Series>(`/me/series${id?`/${id}`:''}`,{method:id?'PUT':'POST',body:JSON.stringify(input)}).then(value=>{getCache.delete('/series');getCache.delete('/series?featured=true');return value}),
-  deleteSeries: (id:string) => request<void>(`/me/series/${id}`,{method:'DELETE'}),
-  setSeriesPosts: (id:string,postIds:string[]) => request<void>(`/me/series/${id}/posts`,{method:'PUT',body:JSON.stringify({post_ids:postIds})}),
+  saveSeries: (input:SeriesInput,id='') => request<Series>(`/me/series${id?`/${id}`:''}`,{method:id?'PUT':'POST',body:JSON.stringify(input)}).then(value=>{invalidateSeries();invalidateAuthors();return value}),
+  deleteSeries: (id:string) => request<void>(`/me/series/${id}`,{method:'DELETE'}).then(value=>{invalidateSeries();invalidateAuthors();return value}),
+  setSeriesPosts: (id:string,postIds:string[]) => request<void>(`/me/series/${id}/posts`,{method:'PUT',body:JSON.stringify({post_ids:postIds})}).then(value=>{invalidateSeries();invalidateAuthors();return value}),
   author: (username:string) => cachedGet<AuthorPageData>(`/authors/${encodeURIComponent(username)}`,30_000),
   authorFollow: (username:string) => request<FollowState>(`/authors/${encodeURIComponent(username)}/follow`),
-  followAuthor: (authorId:string) => request<FollowState>(`/me/authors/${authorId}/follow`,{method:'PUT'}),
-  unfollowAuthor: (authorId:string) => request<FollowState>(`/me/authors/${authorId}/follow`,{method:'DELETE'}),
-  updateAuthorProfile: (bio:string,socialLinks:SocialLinks) => request<User>('/me/author-profile',{method:'PUT',body:JSON.stringify({bio,social_links:socialLinks})}),
+  followAuthor: (authorId:string) => request<FollowState>(`/me/authors/${authorId}/follow`,{method:'PUT'}).then(value=>{invalidateAuthors();return value}),
+  unfollowAuthor: (authorId:string) => request<FollowState>(`/me/authors/${authorId}/follow`,{method:'DELETE'}).then(value=>{invalidateAuthors();return value}),
+  updateAuthorProfile: (bio:string,socialLinks:SocialLinks) => request<User>('/me/author-profile',{method:'PUT',body:JSON.stringify({bio,social_links:socialLinks})}).then(value=>{invalidateAuthors();invalidatePublicPosts();return value}),
   recommendations: (postSlug:string,recent:string[]) => request<Post[]>(`/recommendations?post=${encodeURIComponent(postSlug)}&exclude=${encodeURIComponent(recent.join(','))}`),
   personalRecommendations: (recent:string[]) => request<Post[]>(`/me/recommendations?exclude=${encodeURIComponent(recent.join(','))}`),
   todos: (query='') => request<Page<Todo>>(`/me/todos${query}`),
+  targets: (query='') => request<Target[]>(`/me/targets${query}`),
+  createTarget: (title:string,description:string,dueDate:string) => request<Target>('/me/targets',{method:'POST',body:JSON.stringify({title,description,due_date:dueDate})}),
+  updateTarget: (target:Pick<Target,'id'|'title'|'description'|'due_date'>) => request<void>(`/me/targets/${target.id}`,{method:'PUT',body:JSON.stringify(target)}),
+  shareTarget: (id:string,email:string) => request<{shared:boolean}>(`/me/targets/${id}/share`,{method:'POST',body:JSON.stringify({email})}),
+  deleteTarget: (id:string) => request<void>(`/me/targets/${id}`,{method:'DELETE'}),
+  createTargetTodo: (targetId:string,title:string,notes:string) => request<Todo>(`/me/targets/${targetId}/todos`,{method:'POST',body:JSON.stringify({title,notes})}),
   createTodo: (title:string,notes:string) => request<Todo>('/me/todos',{method:'POST',body:JSON.stringify({title,notes})}),
   updateTodo: (todo:Pick<Todo,'id'|'title'|'notes'|'completed'>) => request<Todo>(`/me/todos/${todo.id}`,{method:'PUT',body:JSON.stringify(todo)}),
+  checkTodo: (id:string,completed:boolean) => request<Todo>(`/me/todos/${id}/check`,{method:'PUT',body:JSON.stringify({completed})}),
   deleteTodo: (id:string) => request<void>(`/me/todos/${id}`,{method:'DELETE'}),
   discussions: (query='') => request<Page<Discussion>>(`/discussions${query}`),
   discussion: (id:string) => request<Discussion>(`/discussions/${id}`),

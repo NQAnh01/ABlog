@@ -38,6 +38,9 @@ func (s *Server) listTodos(c *fiber.Ctx) error {
 	}
 	uid := c.Locals("user_id").(primitive.ObjectID)
 	q := bson.M{"user_id": uid}
+	if c.Query("unassigned") == "true" {
+		q["target_id"] = bson.M{"$exists": false}
+	}
 	if status := c.Query("status"); status == "completed" {
 		q["completed"] = true
 	} else if status == "active" {
@@ -89,6 +92,209 @@ func (s *Server) createTodo(c *fiber.Ctx) error {
 	}
 	return success(c, 201, value)
 }
+
+func parseTargetInput(c *fiber.Ctx) (string, string, time.Time, error) {
+	var input struct {
+		Title       string `json:"title"`
+		Description string `json:"description"`
+		DueDate     string `json:"due_date"`
+	}
+	if c.BodyParser(&input) != nil {
+		return "", "", time.Time{}, fiber.NewError(400, "invalid request")
+	}
+	input.Title, input.Description = strings.TrimSpace(input.Title), strings.TrimSpace(input.Description)
+	due, err := time.Parse("2006-01-02", input.DueDate)
+	if input.Title == "" || len(input.Title) > 160 || len(input.Description) > 1000 || err != nil {
+		return "", "", time.Time{}, fiber.NewError(422, "target title, description or due date is invalid")
+	}
+	return input.Title, input.Description, due.UTC(), nil
+}
+
+func (s *Server) listTargets(c *fiber.Ctx) error {
+	db, e := s.featureDB()
+	if e != nil {
+		return e
+	}
+	uid := c.Locals("user_id").(primitive.ObjectID)
+	query := bson.M{"$or": []bson.M{{"user_id": uid}, {"shared_with": uid}}}
+	if rawDate := strings.TrimSpace(c.Query("date")); rawDate != "" {
+		if selected, parseErr := time.Parse("2006-01-02", rawDate); parseErr == nil {
+			field := "due_date"
+			if c.Query("date_type") == "created" {
+				field = "created_at"
+			}
+			query[field] = bson.M{"$gte": selected.UTC(), "$lt": selected.Add(24 * time.Hour).UTC()}
+		} else {
+			return fiber.NewError(422, "target search date is invalid")
+		}
+	}
+	cursor, e := db.Collection("targets").Find(c.UserContext(), query, options.Find().SetSort(bson.D{{Key: "due_date", Value: 1}}))
+	if e != nil {
+		return e
+	}
+	var values []model.Target
+	if e = cursor.All(c.UserContext(), &values); e != nil {
+		return e
+	}
+	if values == nil {
+		values = []model.Target{}
+	}
+	targetIDs := make([]primitive.ObjectID, 0, len(values))
+	for i := range values {
+		targetIDs = append(targetIDs, values[i].ID)
+		values[i].CanEdit = values[i].UserID == uid
+		values[i].IsShared = values[i].UserID != uid
+	}
+	todoCursor, e := db.Collection("todos").Find(c.UserContext(), bson.M{"target_id": bson.M{"$in": targetIDs}}, options.Find().SetSort(bson.D{{Key: "created_at", Value: 1}}))
+	if e != nil {
+		return e
+	}
+	var todos []model.Todo
+	if e = todoCursor.All(c.UserContext(), &todos); e != nil {
+		return e
+	}
+	byTarget := map[primitive.ObjectID][]model.Todo{}
+	for _, todo := range todos {
+		byTarget[todo.TargetID] = append(byTarget[todo.TargetID], todo)
+	}
+	for i := range values {
+		values[i].Todos = byTarget[values[i].ID]
+		if values[i].Todos == nil {
+			values[i].Todos = []model.Todo{}
+		}
+	}
+	return success(c, 200, values)
+}
+
+func (s *Server) createTarget(c *fiber.Ctx) error {
+	db, e := s.featureDB()
+	if e != nil {
+		return e
+	}
+	title, description, due, e := parseTargetInput(c)
+	if e != nil {
+		return e
+	}
+	now := time.Now().UTC()
+	value := model.Target{ID: primitive.NewObjectID(), UserID: c.Locals("user_id").(primitive.ObjectID), Title: title, Description: description, DueDate: due, CreatedAt: now, UpdatedAt: now, Todos: []model.Todo{}, CanEdit: true}
+	if _, e = db.Collection("targets").InsertOne(c.UserContext(), value); e != nil {
+		return e
+	}
+	return success(c, 201, value)
+}
+
+func (s *Server) updateTarget(c *fiber.Ctx) error {
+	db, e := s.featureDB()
+	if e != nil {
+		return e
+	}
+	id, e := primitive.ObjectIDFromHex(c.Params("id"))
+	if e != nil {
+		return bad("INVALID_ID", "Invalid identifier")
+	}
+	title, description, due, e := parseTargetInput(c)
+	if e != nil {
+		return e
+	}
+	filter := bson.M{"_id": id, "user_id": c.Locals("user_id").(primitive.ObjectID)}
+	result, e := db.Collection("targets").UpdateOne(c.UserContext(), filter, bson.M{"$set": bson.M{"title": title, "description": description, "due_date": due, "updated_at": time.Now().UTC()}})
+	if e != nil {
+		return e
+	}
+	if result.MatchedCount == 0 {
+		return fiber.ErrNotFound
+	}
+	return c.SendStatus(204)
+}
+
+func (s *Server) deleteTarget(c *fiber.Ctx) error {
+	db, e := s.featureDB()
+	if e != nil {
+		return e
+	}
+	id, e := primitive.ObjectIDFromHex(c.Params("id"))
+	if e != nil {
+		return bad("INVALID_ID", "Invalid identifier")
+	}
+	uid := c.Locals("user_id").(primitive.ObjectID)
+	result, e := db.Collection("targets").DeleteOne(c.UserContext(), bson.M{"_id": id, "user_id": uid})
+	if e != nil {
+		return e
+	}
+	if result.DeletedCount == 0 {
+		return fiber.ErrNotFound
+	}
+	if _, e = db.Collection("todos").DeleteMany(c.UserContext(), bson.M{"target_id": id, "user_id": uid}); e != nil {
+		return e
+	}
+	return c.SendStatus(204)
+}
+
+func (s *Server) shareTarget(c *fiber.Ctx) error {
+	db, e := s.featureDB()
+	if e != nil {
+		return e
+	}
+	id, e := primitive.ObjectIDFromHex(c.Params("id"))
+	if e != nil {
+		return bad("INVALID_ID", "Invalid identifier")
+	}
+	var input struct {
+		Email string `json:"email"`
+	}
+	if c.BodyParser(&input) != nil {
+		return bad("INVALID_REQUEST", "Invalid request")
+	}
+	email := strings.ToLower(strings.TrimSpace(input.Email))
+	viewer, e := s.auth.Users.FindByEmail(c.UserContext(), email)
+	if e != nil {
+		return fiber.NewError(404, "account not found")
+	}
+	ownerID := c.Locals("user_id").(primitive.ObjectID)
+	if viewer.ID == ownerID {
+		return fiber.NewError(422, "target already belongs to this account")
+	}
+	result, e := db.Collection("targets").UpdateOne(c.UserContext(), bson.M{"_id": id, "user_id": ownerID}, bson.M{"$addToSet": bson.M{"shared_with": viewer.ID}, "$set": bson.M{"updated_at": time.Now().UTC()}})
+	if e != nil {
+		return e
+	}
+	if result.MatchedCount == 0 {
+		return fiber.ErrNotFound
+	}
+	return success(c, 200, fiber.Map{"shared": true})
+}
+
+func (s *Server) createTargetTodo(c *fiber.Ctx) error {
+	db, e := s.featureDB()
+	if e != nil {
+		return e
+	}
+	id, e := primitive.ObjectIDFromHex(c.Params("id"))
+	if e != nil {
+		return bad("INVALID_ID", "Invalid identifier")
+	}
+	uid := c.Locals("user_id").(primitive.ObjectID)
+	if e = db.Collection("targets").FindOne(c.UserContext(), bson.M{"_id": id, "user_id": uid}).Err(); e != nil {
+		return fiber.ErrNotFound
+	}
+	var input struct {
+		Title string `json:"title"`
+		Notes string `json:"notes"`
+	}
+	if c.BodyParser(&input) != nil {
+		return bad("INVALID_REQUEST", "Invalid request")
+	}
+	input.Title, input.Notes = strings.TrimSpace(input.Title), strings.TrimSpace(input.Notes)
+	if input.Title == "" || len(input.Title) > 160 || len(input.Notes) > 1000 {
+		return fiber.NewError(422, "todo title or notes are invalid")
+	}
+	now := time.Now().UTC()
+	value := model.Todo{ID: primitive.NewObjectID(), UserID: uid, TargetID: id, Title: input.Title, Notes: input.Notes, CreatedAt: now, UpdatedAt: now}
+	if _, e = db.Collection("todos").InsertOne(c.UserContext(), value); e != nil {
+		return e
+	}
+	return success(c, 201, value)
+}
 func (s *Server) updateTodo(c *fiber.Ctx) error {
 	db, e := s.featureDB()
 	if e != nil {
@@ -122,6 +328,40 @@ func (s *Server) updateTodo(c *fiber.Ctx) error {
 		return e
 	}
 	return success(c, 200, value)
+}
+
+func (s *Server) checkTodo(c *fiber.Ctx) error {
+	db, e := s.featureDB()
+	if e != nil {
+		return e
+	}
+	id, e := primitive.ObjectIDFromHex(c.Params("id"))
+	if e != nil {
+		return bad("INVALID_ID", "Invalid identifier")
+	}
+	var input struct {
+		Completed bool `json:"completed"`
+	}
+	if c.BodyParser(&input) != nil {
+		return bad("INVALID_REQUEST", "Invalid request")
+	}
+	uid := c.Locals("user_id").(primitive.ObjectID)
+	var todo model.Todo
+	if e = db.Collection("todos").FindOne(c.UserContext(), bson.M{"_id": id}).Decode(&todo); e != nil {
+		return fiber.ErrNotFound
+	}
+	allowed := todo.UserID == uid
+	if !todo.TargetID.IsZero() {
+		allowed = db.Collection("targets").FindOne(c.UserContext(), bson.M{"_id": todo.TargetID, "$or": []bson.M{{"user_id": uid}, {"shared_with": uid}}}).Err() == nil
+	}
+	if !allowed {
+		return fiber.ErrForbidden
+	}
+	after := options.FindOneAndUpdate().SetReturnDocument(options.After)
+	if e = db.Collection("todos").FindOneAndUpdate(c.UserContext(), bson.M{"_id": id}, bson.M{"$set": bson.M{"completed": input.Completed, "updated_at": time.Now().UTC()}}, after).Decode(&todo); e != nil {
+		return e
+	}
+	return success(c, 200, todo)
 }
 func (s *Server) deleteTodo(c *fiber.Ctx) error {
 	db, e := s.featureDB()

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
+	"github.com/gofiber/fiber/v2/middleware/etag"
 	"github.com/gofiber/fiber/v2/middleware/limiter"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/google/uuid"
@@ -67,6 +68,10 @@ func (s *Server) routes() {
 	a := s.App
 	a.Use(recover.New())
 	a.Use(cors.New(cors.Config{AllowOrigins: s.cfg.ClientOrigin, AllowCredentials: true, AllowHeaders: "Origin, Content-Type, Accept, Authorization"}))
+	a.Use(cacheHeaders)
+	a.Use(etag.New(etag.Config{Next: func(c *fiber.Ctx) bool {
+		return c.Method() != fiber.MethodGet || !etagPublicAPI(c.Path())
+	}}))
 	a.Static("/uploads", s.cfg.StoragePath)
 	a.Get("/robots.txt", func(c *fiber.Ctx) error {
 		c.Type("text/plain")
@@ -141,8 +146,15 @@ func (s *Server) routes() {
 	mine.Put("/authors/:authorId/follow", s.followAuthor)
 	mine.Get("/recommendations", s.personalRecommendations)
 	mine.Get("/todos", s.listTodos)
+	mine.Get("/targets", s.listTargets)
+	mine.Post("/targets", s.createTarget)
+	mine.Put("/targets/:id", s.updateTarget)
+	mine.Delete("/targets/:id", s.deleteTarget)
+	mine.Post("/targets/:id/share", s.shareTarget)
+	mine.Post("/targets/:id/todos", s.createTargetTodo)
 	mine.Post("/todos", s.createTodo)
 	mine.Put("/todos/:id", s.updateTodo)
+	mine.Put("/todos/:id/check", s.checkTodo)
 	mine.Delete("/todos/:id", s.deleteTodo)
 	mine.Delete("/authors/:authorId/follow", s.unfollowAuthor)
 	mine.Put("/bookmarks/:postId", s.addBookmark)
@@ -374,7 +386,51 @@ func (s *Server) listPosts(c *fiber.Ctx) error {
 		return e
 	}
 	s.populateAuthors(c.UserContext(), items)
+	// List views only render post metadata. Keep full content on the detail API.
+	for i := range items {
+		items[i].Content = ""
+		items[i].Reactions = nil
+	}
 	return success(c, 200, fiber.Map{"items": items, "page": page, "limit": limit, "total": total})
+}
+
+func etagPublicAPI(path string) bool {
+	if path == "/api/posts" || path == "/api/categories" || path == "/api/tags" || path == "/api/series" {
+		return true
+	}
+	for _, prefix := range []string{"/api/posts/", "/api/categories/", "/api/tags/", "/api/series/"} {
+		if strings.HasPrefix(path, prefix) {
+			return prefix != "/api/posts/" || (!strings.HasSuffix(path, "/comments") && !strings.HasSuffix(path, "/series"))
+		}
+	}
+	return false
+}
+
+func cacheHeaders(c *fiber.Ctx) error {
+	if c.Method() != fiber.MethodGet && c.Method() != fiber.MethodHead {
+		c.Set(fiber.HeaderCacheControl, "no-store")
+		return c.Next()
+	}
+	path := c.Path()
+	switch {
+	case strings.HasPrefix(path, "/assets/"):
+		c.Set(fiber.HeaderCacheControl, "public, max-age=31536000, immutable")
+	case strings.HasPrefix(path, "/uploads/"):
+		c.Set(fiber.HeaderCacheControl, "public, max-age=2592000, immutable")
+	case path == "/api/categories" || path == "/api/tags" || strings.HasPrefix(path, "/api/categories/") || strings.HasPrefix(path, "/api/tags/"):
+		c.Set(fiber.HeaderCacheControl, "public, max-age=300, stale-while-revalidate=3600")
+	case path == "/api/posts":
+		c.Set(fiber.HeaderCacheControl, "public, max-age=30, stale-while-revalidate=120")
+	case strings.HasPrefix(path, "/api/posts/") && !strings.HasSuffix(path, "/comments") && !strings.HasSuffix(path, "/series"):
+		c.Set(fiber.HeaderCacheControl, "public, max-age=60, stale-while-revalidate=300")
+	case path == "/api/series" || strings.HasPrefix(path, "/api/series/"):
+		c.Set(fiber.HeaderCacheControl, "public, max-age=60, stale-while-revalidate=300")
+	case strings.HasPrefix(path, "/api/"):
+		c.Set(fiber.HeaderCacheControl, "private, no-store")
+	default:
+		c.Set(fiber.HeaderCacheControl, "no-cache")
+	}
+	return c.Next()
 }
 func (s *Server) getPost(c *fiber.Ctx) error {
 	p, e := s.posts.Get(c.UserContext(), c.Params("slug"))

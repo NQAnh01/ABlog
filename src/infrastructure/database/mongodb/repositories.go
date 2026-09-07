@@ -60,7 +60,10 @@ func (r *Repositories) indexes(ctx context.Context) error {
 	}); e != nil {
 		return e
 	}
-	if _, e := r.DB.Collection("todos").Indexes().CreateOne(ctx, mongo.IndexModel{Keys: bson.D{{Key: "user_id", Value: 1}, {Key: "created_at", Value: -1}}}); e != nil {
+	if _, e := r.DB.Collection("todos").Indexes().CreateMany(ctx, []mongo.IndexModel{{Keys: bson.D{{Key: "user_id", Value: 1}, {Key: "created_at", Value: -1}}}, {Keys: bson.D{{Key: "user_id", Value: 1}, {Key: "target_id", Value: 1}, {Key: "created_at", Value: 1}}}}); e != nil {
+		return e
+	}
+	if _, e := r.DB.Collection("targets").Indexes().CreateMany(ctx, []mongo.IndexModel{{Keys: bson.D{{Key: "user_id", Value: 1}, {Key: "due_date", Value: 1}}}, {Keys: bson.D{{Key: "shared_with", Value: 1}, {Key: "due_date", Value: 1}}}}); e != nil {
 		return e
 	}
 	if _, e := r.DB.Collection("discussions").Indexes().CreateMany(ctx, []mongo.IndexModel{{Keys: bson.D{{Key: "created_at", Value: -1}}}, {Keys: bson.D{{Key: "interested_ids", Value: 1}}}}); e != nil {
@@ -226,7 +229,7 @@ func (r *Posts) List(ctx context.Context, f repository.PostFilter) ([]model.Post
 	if e != nil {
 		return nil, 0, e
 	}
-	cur, e := r.c.Find(ctx, q, options.Find().SetSort(bson.D{{Key: "published_at", Value: -1}}).SetSkip(int64((f.Page-1)*f.Limit)).SetLimit(int64(f.Limit)))
+	cur, e := r.c.Find(ctx, q, options.Find().SetProjection(bson.M{"content": 0, "autosave": 0}).SetSort(bson.D{{Key: "published_at", Value: -1}}).SetSkip(int64((f.Page-1)*f.Limit)).SetLimit(int64(f.Limit)))
 	if e != nil {
 		return nil, 0, e
 	}

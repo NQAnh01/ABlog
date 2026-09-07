@@ -58,8 +58,8 @@ export function CommandPalette({ dark, onToggleTheme }: { dark: boolean; onToggl
     const previous = document.activeElement as HTMLElement | null
     document.body.classList.add('palette-open')
     window.requestAnimationFrame(() => inputRef.current?.focus())
-    void Promise.all([api.posts('?limit=100'), api.categories(), api.tags()]).then(([postPage, categoryData, tagData]) => {
-      setPosts(postPage.items ?? []); setCategories(categoryData ?? []); setTags(tagData ?? [])
+    void Promise.all([api.categories(), api.tags()]).then(([categoryData, tagData]) => {
+      setPosts([]); setCategories(categoryData ?? []); setTags(tagData ?? [])
     })
     return () => { document.body.classList.remove('palette-open'); previous?.focus() }
   }, [open])

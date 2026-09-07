@@ -3,14 +3,22 @@
 .theme-light .discussions-page,
 .theme-light .discussion-detail{color:#172235}
 .theme-light .todo-create,
+.theme-light .target-create,
+.theme-light .target-card,
+.theme-light .target-filter,
 .theme-light .todo-list article,
 .theme-light .discussion-list>article,
 .theme-light .discussion-compose>form{border-color:#dfe2ed;background:#fff;box-shadow:0 14px 38px rgba(31,36,68,.07)}
 .theme-light .todo-create input,
+.theme-light .target-create input,
+.theme-light .target-add-todo input,
+.theme-light .target-filter input,
 .theme-light .todo-toolbar input,
 .theme-light .discussion-toolbar input,
 .theme-light .discussion-compose input{border-color:#cfd4e2;background:#f8f9ff;color:#172235}
 .theme-light .todo-list article.completed{background:color-mix(in srgb,var(--primary) 4%,#fff)}
+.theme-light .target-page .todo-check{background:color-mix(in srgb,var(--primary) 3%,#fff)}
+.theme-light .target-page article.completed .todo-check{background:var(--accent-fill);color:var(--accent-ink)}
 .theme-light .discussion-toolbar .discussion-interest-filter{border-color:var(--accent-fill);background:var(--accent-fill);color:var(--accent-ink);box-shadow:0 7px 18px color-mix(in srgb,var(--primary) 18%,transparent)}
 .theme-light .discussion-toolbar .discussion-interest-filter:hover{background:color-mix(in srgb,var(--accent-fill) 88%,#fff);color:var(--accent-ink)}
 .theme-light .discussion-toolbar .discussion-interest-filter.active{box-shadow:0 0 0 3px color-mix(in srgb,var(--primary) 18%,transparent),0 8px 20px color-mix(in srgb,var(--primary) 20%,transparent)}
@@ -30,18 +38,29 @@
 .theme-dark .discussions-page,
 .theme-dark .discussion-detail{color:#e7ecfb}
 .theme-dark .todo-create,
+.theme-dark .target-create,
+.theme-dark .target-card,
+.theme-dark .target-filter,
 .theme-dark .todo-list article,
 .theme-dark .discussion-list>article,
 .theme-dark .discussion-compose>form{border-color:#35415a;background:#111b30;box-shadow:0 18px 46px rgba(0,0,0,.24)}
 .theme-dark .todo-create input,
+.theme-dark .target-create input,
+.theme-dark .target-add-todo input,
+.theme-dark .target-filter input,
 .theme-dark .todo-toolbar input,
 .theme-dark .discussion-toolbar input,
 .theme-dark .discussion-compose input{border-color:#3b4861;background:#0c1629;color:#edf1ff}
 .theme-dark .todo-create input::placeholder,
+.theme-dark .target-create input::placeholder,
+.theme-dark .target-add-todo input::placeholder,
+.theme-dark .target-filter input::placeholder,
 .theme-dark .todo-toolbar input::placeholder,
 .theme-dark .discussion-toolbar input::placeholder,
 .theme-dark .discussion-compose input::placeholder{color:#8290aa}
 .theme-dark .todo-list article.completed{border-color:color-mix(in srgb,var(--primary) 25%,#35415a);background:color-mix(in srgb,var(--primary) 6%,#111b30)}
+.theme-dark .target-page .todo-check{border-color:color-mix(in srgb,var(--primary) 72%,#526079);background:color-mix(in srgb,var(--primary) 7%,#0c1629)}
+.theme-dark .target-page article.completed .todo-check{border-color:var(--accent-fill);background:var(--accent-fill);color:var(--accent-ink)}
 .theme-dark .todo-delete:hover{background:rgba(239,89,99,.13);color:#ff9ca3}
 .theme-dark .discussion-toolbar .discussion-interest-filter{border-color:var(--accent-fill);background:var(--accent-fill);color:var(--accent-ink);box-shadow:0 8px 22px rgba(0,0,0,.22)}
 .theme-dark .discussion-toolbar .discussion-interest-filter:hover{background:color-mix(in srgb,var(--accent-fill) 88%,#fff);color:var(--accent-ink)}

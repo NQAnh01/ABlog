@@ -325,6 +325,44 @@ func jsonRequest(t *testing.T, server *Server, method, path, token string, body 
 	return res.StatusCode, decoded
 }
 
+func TestPublicCacheHeadersAndConditionalETag(t *testing.T) {
+	server, _, _ := postTestServer(t)
+	req := httptest.NewRequest("GET", "/api/posts", nil)
+	response, err := server.App.Test(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if got := response.Header.Get("Cache-Control"); got != "public, max-age=30, stale-while-revalidate=120" {
+		t.Fatalf("unexpected cache policy: %q", got)
+	}
+	tag := response.Header.Get("ETag")
+	if tag == "" {
+		t.Fatal("public post response is missing ETag")
+	}
+
+	conditional := httptest.NewRequest("GET", "/api/posts", nil)
+	conditional.Header.Set("If-None-Match", tag)
+	notModified, err := server.App.Test(conditional)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer notModified.Body.Close()
+	if notModified.StatusCode != 304 {
+		t.Fatalf("expected 304, got %d", notModified.StatusCode)
+	}
+
+	private := httptest.NewRequest("GET", "/api/auth/me", nil)
+	privateResponse, err := server.App.Test(private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer privateResponse.Body.Close()
+	if got := privateResponse.Header.Get("Cache-Control"); got != "private, no-store" {
+		t.Fatalf("unexpected private cache policy: %q", got)
+	}
+}
+
 func TestAdminPostCreateUpdateGetAndListFlow(t *testing.T) {
 	server, adminToken, userToken := postTestServer(t)
 	input := map[string]any{"title": "Architecture of Calm", "excerpt": "A quiet introduction", "content": "A complete editorial story.", "status": "private", "category_ids": []string{}, "tag_ids": []string{}}

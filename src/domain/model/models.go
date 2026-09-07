@@ -65,7 +65,7 @@ type Post struct {
 	Title             string               `bson:"title" json:"title"`
 	Slug              string               `bson:"slug" json:"slug"`
 	Excerpt           string               `bson:"excerpt" json:"excerpt"`
-	Content           string               `bson:"content" json:"content"`
+	Content           string               `bson:"content" json:"content,omitempty"`
 	Thumbnail         *Media               `bson:"thumbnail,omitempty" json:"thumbnail,omitempty"`
 	AuthorID          primitive.ObjectID   `bson:"author_id" json:"author_id"`
 	CategoryIDs       []primitive.ObjectID `bson:"category_ids" json:"category_ids"`
@@ -183,11 +183,25 @@ type SeriesPost struct {
 type Todo struct {
 	ID        primitive.ObjectID `bson:"_id,omitempty" json:"id"`
 	UserID    primitive.ObjectID `bson:"user_id" json:"-"`
+	TargetID  primitive.ObjectID `bson:"target_id,omitempty" json:"target_id,omitempty"`
 	Title     string             `bson:"title" json:"title"`
 	Notes     string             `bson:"notes,omitempty" json:"notes,omitempty"`
 	Completed bool               `bson:"completed" json:"completed"`
 	CreatedAt time.Time          `bson:"created_at" json:"created_at"`
 	UpdatedAt time.Time          `bson:"updated_at" json:"updated_at"`
+}
+type Target struct {
+	ID          primitive.ObjectID   `bson:"_id,omitempty" json:"id"`
+	UserID      primitive.ObjectID   `bson:"user_id" json:"-"`
+	Title       string               `bson:"title" json:"title"`
+	Description string               `bson:"description,omitempty" json:"description,omitempty"`
+	DueDate     time.Time            `bson:"due_date" json:"due_date"`
+	CreatedAt   time.Time            `bson:"created_at" json:"created_at"`
+	UpdatedAt   time.Time            `bson:"updated_at" json:"updated_at"`
+	SharedWith  []primitive.ObjectID `bson:"shared_with,omitempty" json:"-"`
+	Todos       []Todo               `bson:"-" json:"todos"`
+	CanEdit     bool                 `bson:"-" json:"can_edit"`
+	IsShared    bool                 `bson:"-" json:"is_shared"`
 }
 type DiscussionComment struct {
 	ID        primitive.ObjectID `bson:"_id" json:"id"`

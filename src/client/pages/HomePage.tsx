@@ -39,7 +39,7 @@ export function HomePage() {
   useEffect(()=>{
     let active=true
     const from=new Date(Date.now()-7*24*60*60*1000).toISOString().slice(0,10)
-    Promise.all([api.posts('?featured=true&limit=1'),api.posts('?limit=100'),api.posts(`?from=${from}&limit=5`).catch(()=>({items:[],page:1,limit:5,total:0})),api.categories().catch(()=>[]),api.series(true).catch(()=>[])]).then(([featuredPage,recentPage,trendingPage,categoryData,seriesData])=>{
+    Promise.all([api.posts('?featured=true&limit=1'),api.posts('?limit=30'),api.posts(`?from=${from}&limit=5`).catch(()=>({items:[],page:1,limit:5,total:0})),api.categories().catch(()=>[]),api.series(true).catch(()=>[])]).then(([featuredPage,recentPage,trendingPage,categoryData,seriesData])=>{
       if(!active)return
       const allRecent=recentPage.items??[],interests=user?.interest_category_ids??[]
       const recent=interests.length?allRecent.filter(post=>post.category_ids?.some(id=>interests.includes(id))):allRecent
