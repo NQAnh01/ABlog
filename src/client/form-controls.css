@@ -11,7 +11,7 @@
   --control-bg: #0f182b;
   --control-text: #dae2fd;
 }
-:where(select:not([multiple]), .tag-combobox > input) {
+:where(select.app-native-select, .tag-combobox > input) {
   border: 1px solid var(--control-border);
   border-radius: var(--control-radius);
   outline: 0;
@@ -19,11 +19,12 @@
   color: var(--control-text);
   transition: border-color .18s, box-shadow .18s, background-color .18s;
 }
-:where(select:not([multiple]), .tag-combobox > input):focus {
+:where(select.app-native-select, .tag-combobox > input):focus {
   border-color: var(--control-focus);
   box-shadow: 0 0 0 3px var(--control-focus-ring);
 }
-select:not([multiple]) {
+select.app-native-select {
+  width: 100%;
   min-height: 42px;
   padding: 0 42px 0 13px;
   appearance: none;
@@ -32,9 +33,10 @@ select:not([multiple]) {
   background-position: right 12px center;
   cursor: pointer;
 }
-select:not([multiple]):hover { border-color: color-mix(in srgb, var(--primary) 55%, var(--line)); }
-select:not([multiple]):disabled { cursor: not-allowed; opacity: .55; }
-select:not([multiple]) option { background: var(--control-bg); color: var(--control-text); }
+select.app-native-select:hover { border-color: color-mix(in srgb, var(--primary) 55%, var(--line)); }
+select.app-native-select:focus-visible { border-color: var(--control-focus); box-shadow: 0 0 0 3px var(--control-focus-ring); }
+select.app-native-select:disabled { cursor: not-allowed; opacity: .55; }
+select.app-native-select option { background: var(--control-bg); color: var(--control-text); }
 
 .filter-control-select { overflow: visible; }
 .app-select { position: relative; width: 100%; height: 100%; min-width: 0; }

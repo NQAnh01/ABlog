@@ -116,18 +116,48 @@ func (s *Server) listTargets(c *fiber.Ctx) error {
 		return e
 	}
 	uid := c.Locals("user_id").(primitive.ObjectID)
-	query := bson.M{"$or": []bson.M{{"user_id": uid}, {"shared_with": uid}}}
+	conditions := []bson.M{{"$or": []bson.M{{"user_id": uid}, {"shared_with": uid}}}}
 	if rawDate := strings.TrimSpace(c.Query("date")); rawDate != "" {
 		if selected, parseErr := time.Parse("2006-01-02", rawDate); parseErr == nil {
 			field := "due_date"
 			if c.Query("date_type") == "created" {
 				field = "created_at"
 			}
-			query[field] = bson.M{"$gte": selected.UTC(), "$lt": selected.Add(24 * time.Hour).UTC()}
+			conditions = append(conditions, bson.M{field: bson.M{"$gte": selected.UTC(), "$lt": selected.Add(24 * time.Hour).UTC()}})
 		} else {
 			return fiber.NewError(422, "target search date is invalid")
 		}
 	}
+	if term := strings.TrimSpace(c.Query("q")); term != "" {
+		pattern := bson.M{"$regex": regexp.QuoteMeta(term), "$options": "i"}
+		todoCursor, findErr := db.Collection("todos").Find(c.UserContext(), bson.M{"$or": []bson.M{{"title": pattern}, {"notes": pattern}}}, options.Find().SetProjection(bson.M{"target_id": 1}))
+		if findErr != nil {
+			return findErr
+		}
+		defer todoCursor.Close(c.UserContext())
+		matchedTargetIDs := []primitive.ObjectID{}
+		for todoCursor.Next(c.UserContext()) {
+			var match struct {
+				TargetID primitive.ObjectID `bson:"target_id"`
+			}
+			if decodeErr := todoCursor.Decode(&match); decodeErr != nil {
+				return decodeErr
+			}
+			if !match.TargetID.IsZero() {
+				matchedTargetIDs = append(matchedTargetIDs, match.TargetID)
+			}
+		}
+		if cursorErr := todoCursor.Err(); cursorErr != nil {
+			return cursorErr
+		}
+		searchFields := []bson.M{{"title": pattern}, {"description": pattern}, {"_id": bson.M{"$in": matchedTargetIDs}}}
+		if selected, parseErr := time.Parse("2006-01-02", term); parseErr == nil {
+			rangeValue := bson.M{"$gte": selected.UTC(), "$lt": selected.Add(24 * time.Hour).UTC()}
+			searchFields = append(searchFields, bson.M{"created_at": rangeValue}, bson.M{"due_date": rangeValue})
+		}
+		conditions = append(conditions, bson.M{"$or": searchFields})
+	}
+	query := bson.M{"$and": conditions}
 	cursor, e := db.Collection("targets").Find(c.UserContext(), query, options.Find().SetSort(bson.D{{Key: "due_date", Value: 1}}))
 	if e != nil {
 		return e
