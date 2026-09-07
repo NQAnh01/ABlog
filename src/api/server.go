@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/xml"
 	"errors"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
@@ -75,7 +76,7 @@ func (s *Server) routes() {
 	a.Static("/uploads", s.cfg.StoragePath)
 	a.Get("/robots.txt", func(c *fiber.Ctx) error {
 		c.Type("text/plain")
-		return c.SendString("User-agent: *\nAllow: /\nDisallow: /admin/\nDisallow: /profile/\nSitemap: " + strings.TrimSuffix(s.cfg.ClientOrigin, "/") + "/sitemap.xml\n")
+		return c.SendString("User-agent: *\nAllow: /\nDisallow: /admin/\nDisallow: /profile/\nDisallow: /saved\nDisallow: /todos\nDisallow: /stories/\nDisallow: /login\nDisallow: /register\nDisallow: /forgot-password\nDisallow: /reset-password\nDisallow: /offline\nDisallow: /search\nSitemap: " + strings.TrimSuffix(s.cfg.ClientOrigin, "/") + "/sitemap.xml\n")
 	})
 	a.Get("/sitemap.xml", s.sitemap)
 	api := a.Group("/api")
@@ -187,22 +188,56 @@ func (s *Server) routes() {
 	})
 }
 func (s *Server) sitemap(c *fiber.Ctx) error {
-	posts, _, err := s.posts.List(c.UserContext(), repository.PostFilter{Status: "public", Page: 1, Limit: 100})
+	ctx := c.UserContext()
+	posts := []model.Post{}
+	for page := 1; ; page++ {
+		batch, total, err := s.posts.List(ctx, repository.PostFilter{Status: "public", Page: page, Limit: 100})
+		if err != nil {
+			return err
+		}
+		posts = append(posts, batch...)
+		if len(posts) >= int(total) || len(batch) == 0 {
+			break
+		}
+	}
+	categories, err := s.taxonomy.Categories(ctx)
+	if err != nil {
+		return err
+	}
+	tags, err := s.taxonomy.Tags(ctx)
+	if err != nil {
+		return err
+	}
+	seriesValues, err := s.series.List(ctx, primitive.NilObjectID, true, false)
 	if err != nil {
 		return err
 	}
 	base := strings.TrimSuffix(s.cfg.ClientOrigin, "/")
 	var body strings.Builder
 	body.WriteString(`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">`)
-	for _, path := range []string{"/", "/blog", "/about", "/privacy"} {
-		body.WriteString("<url><loc>" + base + path + "</loc></url>")
-	}
-	for _, postValue := range posts {
-		body.WriteString("<url><loc>" + base + "/blog/" + postValue.Slug + "</loc>")
-		if !postValue.UpdatedAt.IsZero() {
-			body.WriteString("<lastmod>" + postValue.UpdatedAt.Format("2006-01-02") + "</lastmod>")
+	writeURL := func(path string, updated time.Time) {
+		body.WriteString("<url><loc>")
+		_ = xml.EscapeText(&body, []byte(base+path))
+		body.WriteString("</loc>")
+		if !updated.IsZero() {
+			body.WriteString("<lastmod>" + updated.Format("2006-01-02") + "</lastmod>")
 		}
 		body.WriteString("</url>")
+	}
+	for _, path := range []string{"/", "/blog", "/about", "/privacy", "/socials", "/discussions"} {
+		writeURL(path, time.Time{})
+	}
+	for _, postValue := range posts {
+		writeURL("/blog/"+postValue.Slug, postValue.UpdatedAt)
+	}
+	for _, value := range categories {
+		writeURL("/categories/"+value.Slug, value.UpdatedAt)
+	}
+	for _, value := range tags {
+		writeURL("/tags/"+value.Slug, value.UpdatedAt)
+	}
+	for _, value := range seriesValues {
+		writeURL("/series/"+value.Slug, value.UpdatedAt)
 	}
 	body.WriteString("</urlset>")
 	c.Type("application/xml")
