@@ -1,4 +1,4 @@
-import type { AuthorPageData, Category, Comment, Dashboard, Discussion, DiscussionComment, FollowState, Media, Page, Post, PostDraft, PostDraftResponse, PostInput, PostVersion, Reaction, ReactionType, Series, SeriesInput, SocialLinks, Tag, Target, Todo, User } from '../types'
+import type { AdminPasswordReset, AuthorPageData, Category, Comment, Dashboard, Discussion, DiscussionComment, FeatureFlag, FeatureFlags, FollowState, Media, Page, Post, PostDraft, PostDraftResponse, PostInput, PostVersion, Reaction, ReactionType, Series, SeriesInput, SocialLinks, Tag, Target, Todo, User } from '../types'
 
 const API_ORIGIN = import.meta.env.VITE_API_ORIGIN ?? (import.meta.env.DEV ? 'http://localhost:8088' : '')
 const API = `${API_ORIGIN}/api`
@@ -117,8 +117,38 @@ export const api = {
   createPost: (input: PostInput) => request<Post>('/me/posts', { method: 'POST', body: JSON.stringify(input) }).then(value => { invalidatePublicPosts(); invalidateAuthors(); invalidateSeries(); return value }),
   updatePost: (id: string, input: PostInput) => request<Post>(`/me/posts/${id}`, { method: 'PUT', body: JSON.stringify(input) }).then(value => { invalidatePublicPosts(); invalidateAuthors(); invalidateSeries(); return value }),
   deletePost: (id: string) => request<void>(`/me/posts/${id}`, { method: 'DELETE' }).then(value => { invalidatePublicPosts(); invalidateAuthors(); invalidateSeries(); return value }),
+  bulkPosts: (action: 'publish' | 'unpublish' | 'delete', ids: string[]) => request<{ affected: number; action: string }>('/me/posts/bulk', { method: 'POST', body: JSON.stringify({ action, ids }) }).then(value => { invalidatePublicPosts(); invalidateAuthors(); invalidateSeries(); return value }),
+  exportData: async () => {
+    const headers = new Headers()
+    if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`)
+    const res = await fetch(`${API}/me/export`, { headers, credentials: 'include' })
+    if (!res.ok) throw new Error('Failed to export account data')
+    const blob = await res.blob()
+    const contentDisposition = res.headers.get('Content-Disposition')
+    let filename = 'lumina-data-export.json'
+    if (contentDisposition) {
+      const match = contentDisposition.match(/filename="?([^";]+)"?/)
+      if (match?.[1]) filename = match[1]
+    }
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  },
+  featureFlags: () => cachedGet<FeatureFlags>('/features', 30_000),
+  adminFeatureFlags: () => request<FeatureFlag[]>('/admin/features'),
+  adminUpdateFeatureFlag: (key: string, enabled: boolean) => request<FeatureFlag>(`/admin/features/${key}`, { method: 'PUT', body: JSON.stringify({ enabled }) }).then(value => { getCache.delete('/features'); return value }),
   uploadImage: (file: File) => { const form = new FormData(); form.append('file', file); return request<Media>('/me/uploads', { method: 'POST', body: form }) },
   dashboard: () => request<Dashboard>('/admin/dashboard'),
+  adminUsers: () => request<User[]>('/admin/users'),
+  adminUser: (id: string) => request<User>(`/admin/users/${id}`),
+  adminUpdateUser: (id: string, data: Partial<User>) => request<User>(`/admin/users/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  adminPasswordResets: () => request<AdminPasswordReset[]>('/admin/password-resets'),
+  adminResetUserPassword: (id:string) => request<{password:string}>(`/admin/users/${id}/reset-password`, { method:'PUT' }),
   adminComments: () => request<Comment[]>('/admin/comments'),
   updateCommentStatus: (id: string, status: string) => request<{ id: string; status: string }>(`/admin/comments/${id}/status`, { method: 'PUT', body: JSON.stringify({ status }) }),
   deleteAdminComment: (id: string) => request<void>(`/admin/comments/${id}`, { method: 'DELETE' }),

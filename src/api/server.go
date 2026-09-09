@@ -4,14 +4,17 @@ import (
 	"context"
 	"encoding/xml"
 	"errors"
+	"fmt"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/etag"
 	"github.com/gofiber/fiber/v2/middleware/limiter"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/google/uuid"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 	"log"
 	"lumina/src/domain/comment"
 	"lumina/src/domain/model"
@@ -27,9 +30,11 @@ import (
 	"net/http"
 	"net/smtp"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -46,13 +51,17 @@ type Server struct {
 	recommendations *recommendation.Service
 	db              *mongo.Database
 	cfg             config.Config
+	startTime       time.Time
+	featuresCacheMu sync.RWMutex
+	featuresCache   map[string]bool
+	featuresCacheAt time.Time
 }
 
 func New(cfg config.Config, a user.Service, p post.Service, c comment.Service, t taxonomy.Service, series seriesdomain.Service, recommendations *recommendation.Service, st store.Storage, follows repository.FollowRepository, bookmarks repository.BookmarkRepository, databases ...*mongo.Database) *Server {
 	if cfg.CommentRateLimit < 1 {
 		cfg.CommentRateLimit = 6
 	}
-	s := &Server{auth: a, posts: p, comments: c, taxonomy: t, series: series, recommendations: recommendations, storage: st, follows: follows, cfg: cfg}
+	s := &Server{auth: a, posts: p, comments: c, taxonomy: t, series: series, recommendations: recommendations, storage: st, follows: follows, cfg: cfg, startTime: time.Now()}
 	s.bookmarks = bookmarks
 	if len(databases) > 0 {
 		s.db = databases[0]
@@ -88,6 +97,9 @@ func (s *Server) routes() {
 	auth.Post("/forgot-password", s.forgotPassword)
 	auth.Post("/reset-password", s.resetPassword)
 	auth.Get("/me", s.requireAuth, s.me)
+	api.Get("/features", s.listFeatures)
+	api.Get("/healthz", s.healthCheck)
+	api.Get("/metrics", s.metricsHandler)
 	api.Get("/posts", s.listPosts)
 	api.Get("/posts/:slug", s.getPost)
 	api.Get("/posts/:slug/comments", s.listComments)
@@ -122,6 +134,7 @@ func (s *Server) routes() {
 	mine.Put("/author-profile", s.updateAuthorProfile)
 	mine.Put("/password", s.changePassword)
 	mine.Post("/avatar", s.uploadAvatar)
+	mine.Get("/export", s.exportUserData)
 	mine.Get("/posts", s.myListPosts)
 	mine.Get("/posts/:id", s.myGetPost)
 	mine.Get("/posts/:id/versions", s.myPostVersions)
@@ -129,6 +142,7 @@ func (s *Server) routes() {
 	mine.Put("/posts/:id/draft", s.mySavePostDraft)
 	mine.Delete("/posts/:id/draft", s.myDeletePostDraft)
 	mine.Post("/posts", s.createPost)
+	mine.Post("/posts/bulk", s.myBulkPosts)
 	mine.Put("/posts/:id", s.myUpdatePost)
 	mine.Delete("/posts/:id", s.myDeletePost)
 	mine.Post("/uploads", s.upload)
@@ -160,12 +174,13 @@ func (s *Server) routes() {
 	mine.Delete("/authors/:authorId/follow", s.unfollowAuthor)
 	mine.Put("/bookmarks/:postId", s.addBookmark)
 	mine.Delete("/bookmarks/:postId", s.removeBookmark)
-	admin := api.Group("/admin", s.requireAuth, s.requireAdmin)
+	admin := api.Group("/admin", s.requireAuth, s.requireEditorOrAdmin)
 	admin.Get("/posts", s.adminListPosts)
 	admin.Get("/posts/:id", s.adminGetPost)
 	admin.Post("/posts", s.createPost)
 	admin.Put("/posts/:id", s.updatePost)
 	admin.Delete("/posts/:id", s.deletePost)
+	admin.Post("/posts/bulk", s.myBulkPosts)
 	admin.Post("/uploads", s.upload)
 	admin.Post("/categories", s.saveCategory)
 	admin.Put("/categories/:id", s.saveCategory)
@@ -175,8 +190,15 @@ func (s *Server) routes() {
 	admin.Delete("/tags/:id", s.deleteTag)
 	admin.Get("/comments", s.adminComments)
 	admin.Get("/dashboard", s.adminDashboard)
+	admin.Get("/users", s.requireAdmin, s.adminUsers)
+	admin.Get("/users/:id", s.requireAdmin, s.adminUser)
+	admin.Put("/users/:id", s.requireAdmin, s.adminUpdateUser)
+	admin.Get("/password-resets", s.requireAdmin, s.adminPasswordResets)
+	admin.Put("/users/:id/reset-password", s.requireAdmin, s.adminResetUserPassword)
 	admin.Put("/comments/:id/status", s.commentStatus)
 	admin.Delete("/comments/:id", s.adminDeleteComment)
+	admin.Get("/features", s.requireAdmin, s.adminListFeatures)
+	admin.Put("/features/:key", s.requireAdmin, s.adminUpdateFeature)
 	// Serve Vite's fingerprinted JavaScript, CSS and other public assets before
 	// the SPA fallback below. Without this, /assets/* receives index.html.
 	a.Static("/assets", "dist/assets")
@@ -285,6 +307,183 @@ func (s *Server) resetPassword(c *fiber.Ctx) error {
 	}
 	return c.SendStatus(204)
 }
+
+// adminUsers deliberately lives behind requireAdmin because it includes
+// account-only fields such as email and phone number.
+func (s *Server) adminUsers(c *fiber.Ctx) error {
+	if s.db == nil {
+		return fiber.NewError(503, "user administration is unavailable")
+	}
+	cur, err := s.db.Collection("users").Find(c.UserContext(), bson.M{}, options.Find().SetSort(bson.D{{Key: "created_at", Value: -1}}))
+	if err != nil {
+		return err
+	}
+	defer cur.Close(c.UserContext())
+	var users []model.User
+	if err = cur.All(c.UserContext(), &users); err != nil {
+		return err
+	}
+	return success(c, 200, users)
+}
+
+func (s *Server) adminUser(c *fiber.Ctx) error {
+	id, err := primitive.ObjectIDFromHex(c.Params("id"))
+	if err != nil {
+		return bad("INVALID_USER_ID", "Invalid user ID")
+	}
+	value, err := s.auth.Users.FindByID(c.UserContext(), id)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return fiber.ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	return success(c, 200, value)
+}
+
+type adminPasswordReset struct {
+	ID        primitive.ObjectID `json:"id"`
+	User      model.User         `json:"user"`
+	CreatedAt time.Time          `json:"created_at"`
+	ExpiresAt time.Time          `json:"expires_at"`
+}
+
+func (s *Server) adminPasswordResets(c *fiber.Ctx) error {
+	if s.db == nil {
+		return fiber.NewError(503, "password reset administration is unavailable")
+	}
+	cur, err := s.db.Collection("password_resets").Find(c.UserContext(), bson.M{"expires_at": bson.M{"$gt": time.Now().UTC()}}, options.Find().SetSort(bson.D{{Key: "created_at", Value: -1}}))
+	if err != nil {
+		return err
+	}
+	defer cur.Close(c.UserContext())
+	var resets []model.PasswordReset
+	if err = cur.All(c.UserContext(), &resets); err != nil {
+		return err
+	}
+	items := make([]adminPasswordReset, 0, len(resets))
+	for _, reset := range resets {
+		value, findErr := s.auth.Users.FindByID(c.UserContext(), reset.UserID)
+		if findErr == nil {
+			items = append(items, adminPasswordReset{ID: reset.ID, User: *value, CreatedAt: reset.CreatedAt, ExpiresAt: reset.ExpiresAt})
+		}
+	}
+	return success(c, 200, items)
+}
+
+func (s *Server) adminResetUserPassword(c *fiber.Ctx) error {
+	id, err := primitive.ObjectIDFromHex(c.Params("id"))
+	if err != nil {
+		return bad("INVALID_USER_ID", "Invalid user ID")
+	}
+	if err = s.auth.AdminResetPassword(c.UserContext(), id); err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return fiber.ErrNotFound
+		}
+		return err
+	}
+	return success(c, 200, fiber.Map{"password": user.DefaultAdminResetPassword})
+}
+
+func (s *Server) adminUpdateUser(c *fiber.Ctx) error {
+	if s.db == nil {
+		return fiber.NewError(503, "database unavailable")
+	}
+	id, err := primitive.ObjectIDFromHex(c.Params("id"))
+	if err != nil {
+		return bad("INVALID_USER_ID", "Invalid user ID")
+	}
+
+	var input struct {
+		Name        string            `json:"name"`
+		Email       string            `json:"email"`
+		Username    string            `json:"username"`
+		Phone       string            `json:"phone"`
+		Role        string            `json:"role"`
+		Bio         string            `json:"bio"`
+		Avatar      string            `json:"avatar"`
+		SocialLinks model.SocialLinks `json:"social_links"`
+	}
+	if err := c.BodyParser(&input); err != nil {
+		return bad("INVALID_REQUEST", "Invalid request body")
+	}
+
+	name := strings.TrimSpace(input.Name)
+	if name == "" {
+		return fiber.NewError(422, "Name cannot be empty")
+	}
+	if len(name) > 100 {
+		return fiber.NewError(422, "Name must be 100 characters or fewer")
+	}
+
+	email := strings.ToLower(strings.TrimSpace(input.Email))
+	if email == "" || !strings.Contains(email, "@") || !strings.Contains(email, ".") {
+		return fiber.NewError(422, "A valid email address is required")
+	}
+
+	// Check if another user has this email
+	var existingWithEmail model.User
+	if err := s.db.Collection("users").FindOne(c.UserContext(), bson.M{"email": email, "_id": bson.M{"$ne": id}}).Decode(&existingWithEmail); err == nil {
+		return fiber.NewError(422, "This email address is already in use by another user")
+	}
+
+	username := strings.ToLower(strings.TrimSpace(input.Username))
+	username = strings.TrimPrefix(username, "@")
+	if username != "" {
+		if len(username) < 2 || len(username) > 30 {
+			return fiber.NewError(422, "Username must be between 2 and 30 characters")
+		}
+		var existingWithUsername model.User
+		if err := s.db.Collection("users").FindOne(c.UserContext(), bson.M{"username": username, "_id": bson.M{"$ne": id}}).Decode(&existingWithUsername); err == nil {
+			return fiber.NewError(422, "This username is already taken")
+		}
+	}
+
+	role := strings.ToLower(strings.TrimSpace(input.Role))
+	if role != "" && role != "admin" && role != "editor" && role != "user" {
+		return fiber.NewError(422, "Role must be 'admin', 'editor', or 'user'")
+	}
+	if role == "" {
+		role = "user"
+	}
+
+	bio := strings.TrimSpace(input.Bio)
+	if len(bio) > 1000 {
+		return fiber.NewError(422, "Bio must be 1000 characters or fewer")
+	}
+
+	phone := strings.TrimSpace(input.Phone)
+	avatar := strings.TrimSpace(input.Avatar)
+
+	updateDoc := bson.M{
+		"name":         name,
+		"email":        email,
+		"role":         role,
+		"bio":          bio,
+		"phone":        phone,
+		"avatar":       avatar,
+		"social_links": input.SocialLinks,
+		"updated_at":   time.Now().UTC(),
+	}
+	if username != "" {
+		updateDoc["username"] = username
+	}
+
+	res, err := s.db.Collection("users").UpdateByID(c.UserContext(), id, bson.M{"$set": updateDoc})
+	if err != nil {
+		return err
+	}
+	if res.MatchedCount == 0 {
+		return fiber.ErrNotFound
+	}
+
+	updatedUser, err := s.auth.Users.FindByID(c.UserContext(), id)
+	if err != nil {
+		return err
+	}
+	return success(c, 200, updatedUser)
+}
+
 func (s *Server) listBookmarks(c *fiber.Ctx) error {
 	if s.bookmarks == nil {
 		return fiber.NewError(503, "bookmarks unavailable")
@@ -629,7 +828,7 @@ func (s *Server) myListPosts(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	if c.Locals("role") != "admin" {
+	if c.Locals("role") != "admin" && c.Locals("role") != "editor" {
 		filter.AuthorID = c.Locals("user_id").(primitive.ObjectID)
 	}
 	items, total, err := s.posts.List(c.UserContext(), filter)
@@ -657,7 +856,8 @@ func postFilter(c *fiber.Ctx, status string, page, limit int) (repository.PostFi
 	return filter, nil
 }
 func (s *Server) canManagePost(c *fiber.Ctx, p *model.Post) bool {
-	return c.Locals("role") == "admin" || p.AuthorID == c.Locals("user_id").(primitive.ObjectID)
+	role := c.Locals("role")
+	return role == "admin" || role == "editor" || p.AuthorID == c.Locals("user_id").(primitive.ObjectID)
 }
 func (s *Server) myGetPost(c *fiber.Ctx) error {
 	id, err := primitive.ObjectIDFromHex(c.Params("id"))
@@ -966,7 +1166,8 @@ func (s *Server) deleteComment(c *fiber.Ctx) error {
 	if e != nil {
 		return bad("INVALID_ID", "Invalid identifier")
 	}
-	if e = s.comments.Delete(c.UserContext(), id, c.Locals("user_id").(primitive.ObjectID), c.Locals("role") == "admin"); e != nil {
+	isStaff := c.Locals("role") == "admin" || c.Locals("role") == "editor"
+	if e = s.comments.Delete(c.UserContext(), id, c.Locals("user_id").(primitive.ObjectID), isStaff); e != nil {
 		return fiber.NewError(403, e.Error())
 	}
 	return c.SendStatus(204)
@@ -1185,6 +1386,345 @@ func (s *Server) requireAdmin(c *fiber.Ctx) error {
 		return fiber.ErrForbidden
 	}
 	return c.Next()
+}
+func (s *Server) requireEditorOrAdmin(c *fiber.Ctx) error {
+	role, _ := c.Locals("role").(string)
+	if role != "admin" && role != "editor" {
+		return fiber.ErrForbidden
+	}
+	return c.Next()
+}
+
+type bulkPostsInput struct {
+	Action string   `json:"action"`
+	IDs    []string `json:"ids"`
+}
+
+func (s *Server) myBulkPosts(c *fiber.Ctx) error {
+	var input bulkPostsInput
+	if err := c.BodyParser(&input); err != nil {
+		return bad("INVALID_REQUEST", "Invalid request body")
+	}
+	input.Action = strings.ToLower(strings.TrimSpace(input.Action))
+	if input.Action != "publish" && input.Action != "unpublish" && input.Action != "delete" {
+		return fiber.NewError(422, "Action must be 'publish', 'unpublish', or 'delete'")
+	}
+	if len(input.IDs) == 0 {
+		return fiber.NewError(422, "No post IDs provided")
+	}
+	if len(input.IDs) > 100 {
+		return fiber.NewError(422, "Cannot process more than 100 posts at once")
+	}
+
+	affected := 0
+	now := time.Now().UTC()
+
+	for _, rawID := range input.IDs {
+		id, err := primitive.ObjectIDFromHex(strings.TrimSpace(rawID))
+		if err != nil {
+			continue
+		}
+		p, err := s.posts.GetAdmin(c.UserContext(), id)
+		if err != nil || !s.canManagePost(c, p) {
+			continue
+		}
+
+		switch input.Action {
+		case "delete":
+			if err := s.posts.Repo.Delete(c.UserContext(), id); err == nil {
+				affected++
+				if repo, ok := s.draftRepo(); ok {
+					_ = repo.DeleteDraft(c.UserContext(), id)
+				}
+			}
+		case "publish":
+			if p.Status != "public" {
+				p.Status = "public"
+				if p.PublishedAt == nil {
+					p.PublishedAt = &now
+				}
+				p.UpdatedAt = now
+				if err := s.posts.Repo.Update(c.UserContext(), p); err == nil {
+					affected++
+				}
+			}
+		case "unpublish":
+			if p.Status != "private" {
+				p.Status = "private"
+				p.PublishedAt = nil
+				p.UpdatedAt = now
+				if err := s.posts.Repo.Update(c.UserContext(), p); err == nil {
+					affected++
+				}
+			}
+		}
+	}
+
+	return success(c, 200, fiber.Map{"affected": affected, "action": input.Action})
+}
+
+func (s *Server) exportUserData(c *fiber.Ctx) error {
+	userID, ok := c.Locals("user_id").(primitive.ObjectID)
+	if !ok {
+		return fiber.ErrUnauthorized
+	}
+	ctx := c.UserContext()
+
+	u, err := s.auth.Users.FindByID(ctx, userID)
+	if err != nil {
+		return fiber.ErrNotFound
+	}
+	u.PasswordHash = ""
+
+	filter := repository.PostFilter{AuthorID: userID, Limit: 1000}
+	posts, _, _ := s.posts.List(ctx, filter)
+
+	var comments []model.Comment
+	if s.db != nil {
+		cur, err := s.db.Collection("comments").Find(ctx, bson.M{"user_id": userID})
+		if err == nil {
+			_ = cur.All(ctx, &comments)
+		}
+	}
+
+	var bookmarks []model.Bookmark
+	if s.db != nil {
+		cur, err := s.db.Collection("bookmarks").Find(ctx, bson.M{"user_id": userID})
+		if err == nil {
+			_ = cur.All(ctx, &bookmarks)
+		}
+	}
+
+	var todos []model.Todo
+	if s.db != nil {
+		cur, err := s.db.Collection("todos").Find(ctx, bson.M{"user_id": userID})
+		if err == nil {
+			_ = cur.All(ctx, &todos)
+		}
+	}
+
+	var targets []model.Target
+	if s.db != nil {
+		cur, err := s.db.Collection("targets").Find(ctx, bson.M{"user_id": userID})
+		if err == nil {
+			_ = cur.All(ctx, &targets)
+		}
+	}
+
+	var discussions []model.Discussion
+	if s.db != nil {
+		cur, err := s.db.Collection("discussions").Find(ctx, bson.M{"author_id": userID})
+		if err == nil {
+			_ = cur.All(ctx, &discussions)
+		}
+	}
+
+	username := u.Username
+	if username == "" {
+		username = "user"
+	}
+
+	filename := fmt.Sprintf("lumina-export-%s-%s.json", username, time.Now().Format("2006-01-02"))
+	c.Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+	c.Set("Content-Type", "application/json; charset=utf-8")
+
+	return c.JSON(fiber.Map{
+		"platform":       "Lumina Blog",
+		"export_version": "1.0",
+		"exported_at":    time.Now().UTC(),
+		"user":           u,
+		"posts":          posts,
+		"comments":       comments,
+		"bookmarks":      bookmarks,
+		"todos":          todos,
+		"targets":        targets,
+		"discussions":    discussions,
+	})
+}
+
+func defaultFeatureFlags() []model.FeatureFlag {
+	now := time.Now().UTC()
+	return []model.FeatureFlag{
+		{Key: "newsletter", Enabled: true, Description: "Newsletter subscription form in footer and home", UpdatedAt: now},
+		{Key: "discussions", Enabled: true, Description: "Community discussion threads and commenting", UpdatedAt: now},
+		{Key: "todos", Enabled: true, Description: "Productivity targets and task checklist", UpdatedAt: now},
+		{Key: "pwa", Enabled: true, Description: "Progressive Web App offline reading and caching", UpdatedAt: now},
+		{Key: "social_share", Enabled: true, Description: "Social media share buttons on stories", UpdatedAt: now},
+	}
+}
+
+func (s *Server) listFeatures(c *fiber.Ctx) error {
+	s.featuresCacheMu.RLock()
+	if s.featuresCache != nil && time.Since(s.featuresCacheAt) < 30*time.Second {
+		cached := s.featuresCache
+		s.featuresCacheMu.RUnlock()
+		return success(c, 200, cached)
+	}
+	s.featuresCacheMu.RUnlock()
+
+	ctx := c.UserContext()
+	result := make(map[string]bool)
+	for _, d := range defaultFeatureFlags() {
+		result[d.Key] = d.Enabled
+	}
+
+	if s.db != nil {
+		cur, err := s.db.Collection("features").Find(ctx, bson.M{})
+		if err == nil {
+			var flags []model.FeatureFlag
+			if err = cur.All(ctx, &flags); err == nil {
+				for _, flag := range flags {
+					result[flag.Key] = flag.Enabled
+				}
+			}
+		}
+	}
+
+	s.featuresCacheMu.Lock()
+	s.featuresCache = result
+	s.featuresCacheAt = time.Now()
+	s.featuresCacheMu.Unlock()
+
+	return success(c, 200, result)
+}
+
+func (s *Server) adminListFeatures(c *fiber.Ctx) error {
+	ctx := c.UserContext()
+	flagMap := make(map[string]model.FeatureFlag)
+	for _, d := range defaultFeatureFlags() {
+		flagMap[d.Key] = d
+	}
+
+	if s.db != nil {
+		cur, err := s.db.Collection("features").Find(ctx, bson.M{})
+		if err == nil {
+			var flags []model.FeatureFlag
+			if err = cur.All(ctx, &flags); err == nil {
+				for _, f := range flags {
+					flagMap[f.Key] = f
+				}
+			}
+		}
+	}
+
+	var list []model.FeatureFlag
+	for _, f := range flagMap {
+		list = append(list, f)
+	}
+	sort.Slice(list, func(i, j int) bool {
+		return list[i].Key < list[j].Key
+	})
+	return success(c, 200, list)
+}
+
+func (s *Server) adminUpdateFeature(c *fiber.Ctx) error {
+	key := strings.ToLower(strings.TrimSpace(c.Params("key")))
+	if key == "" {
+		return bad("INVALID_KEY", "Feature key is required")
+	}
+
+	var input struct {
+		Enabled     bool   `json:"enabled"`
+		Description string `json:"description"`
+	}
+	if err := c.BodyParser(&input); err != nil {
+		return bad("INVALID_REQUEST", "Invalid request body")
+	}
+
+	now := time.Now().UTC()
+	doc := bson.M{
+		"key":        key,
+		"enabled":    input.Enabled,
+		"updated_at": now,
+	}
+	if input.Description != "" {
+		doc["description"] = input.Description
+	}
+
+	if s.db != nil {
+		opts := options.Update().SetUpsert(true)
+		_, err := s.db.Collection("features").UpdateOne(c.UserContext(), bson.M{"key": key}, bson.M{"$set": doc}, opts)
+		if err != nil {
+			return err
+		}
+	}
+
+	s.featuresCacheMu.Lock()
+	s.featuresCache = nil
+	s.featuresCacheMu.Unlock()
+
+	return success(c, 200, fiber.Map{"key": key, "enabled": input.Enabled, "updated_at": now})
+}
+
+func (s *Server) healthCheck(c *fiber.Ctx) error {
+	ctx, cancel := context.WithTimeout(c.UserContext(), 2*time.Second)
+	defer cancel()
+
+	mongoStatus := "connected"
+	var err error
+	if s.db != nil {
+		err = s.db.Client().Ping(ctx, nil)
+	}
+	if err != nil {
+		mongoStatus = "disconnected"
+		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{
+			"status":   "unhealthy",
+			"database": mongoStatus,
+			"error":    err.Error(),
+			"uptime":   time.Since(s.startTime).Seconds(),
+		})
+	}
+
+	var mem runtime.MemStats
+	runtime.ReadMemStats(&mem)
+
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"status":      "ok",
+		"database":    mongoStatus,
+		"uptime":      time.Since(s.startTime).Seconds(),
+		"goroutines":  runtime.NumGoroutine(),
+		"alloc_bytes": mem.Alloc,
+		"sys_bytes":   mem.Sys,
+	})
+}
+
+func (s *Server) metricsHandler(c *fiber.Ctx) error {
+	var mem runtime.MemStats
+	runtime.ReadMemStats(&mem)
+
+	mongoUp := 0
+	if s.db != nil {
+		ctx, cancel := context.WithTimeout(c.UserContext(), time.Second)
+		if err := s.db.Client().Ping(ctx, nil); err == nil {
+			mongoUp = 1
+		}
+		cancel()
+	}
+
+	c.Type("text/plain; version=0.0.4")
+	output := fmt.Sprintf(
+		"# HELP lumina_uptime_seconds Total seconds server has been running\n"+
+			"# TYPE lumina_uptime_seconds counter\n"+
+			"lumina_uptime_seconds %.1f\n"+
+			"# HELP lumina_goroutines Current active goroutines\n"+
+			"# TYPE lumina_goroutines gauge\n"+
+			"lumina_goroutines %d\n"+
+			"# HELP lumina_memory_alloc_bytes Current allocated heap memory in bytes\n"+
+			"# TYPE lumina_memory_alloc_bytes gauge\n"+
+			"lumina_memory_alloc_bytes %d\n"+
+			"# HELP lumina_memory_sys_bytes Total memory obtained from OS in bytes\n"+
+			"# TYPE lumina_memory_sys_bytes gauge\n"+
+			"lumina_memory_sys_bytes %d\n"+
+			"# HELP lumina_mongodb_up MongoDB connection status (1 for connected, 0 for down)\n"+
+			"# TYPE lumina_mongodb_up gauge\n"+
+			"lumina_mongodb_up %d\n",
+		time.Since(s.startTime).Seconds(),
+		runtime.NumGoroutine(),
+		mem.Alloc,
+		mem.Sys,
+		mongoUp,
+	)
+	return c.SendString(output)
 }
 
 type apiErr struct{ Code, Message string }

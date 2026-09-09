@@ -47,7 +47,8 @@ func (s *Server) myGetSeries(c *fiber.Ctx) error {
 	if err != nil {
 		return bad("INVALID_ID", "Invalid identifier")
 	}
-	value, err := s.series.GetManaged(c.UserContext(), id, c.Locals("user_id").(primitive.ObjectID), c.Locals("role") == "admin")
+	isStaff := c.Locals("role") == "admin" || c.Locals("role") == "editor"
+	value, err := s.series.GetManaged(c.UserContext(), id, c.Locals("user_id").(primitive.ObjectID), isStaff)
 	if err != nil {
 		return fiber.ErrForbidden
 	}
@@ -62,7 +63,8 @@ func (s *Server) saveSeries(c *fiber.Ctx) error {
 	if err = c.BodyParser(&input); err != nil {
 		return bad("INVALID_REQUEST", "Invalid request")
 	}
-	value, err := s.series.Save(c.UserContext(), id, c.Locals("user_id").(primitive.ObjectID), c.Locals("role") == "admin", &input)
+	isStaff := c.Locals("role") == "admin" || c.Locals("role") == "editor"
+	value, err := s.series.Save(c.UserContext(), id, c.Locals("user_id").(primitive.ObjectID), isStaff, &input)
 	if err != nil {
 		return fiber.NewError(422, err.Error())
 	}
@@ -77,7 +79,8 @@ func (s *Server) deleteSeries(c *fiber.Ctx) error {
 	if err != nil {
 		return bad("INVALID_ID", "Invalid identifier")
 	}
-	if _, err = s.series.GetManaged(c.UserContext(), id, c.Locals("user_id").(primitive.ObjectID), c.Locals("role") == "admin"); err != nil {
+	isStaff := c.Locals("role") == "admin" || c.Locals("role") == "editor"
+	if _, err = s.series.GetManaged(c.UserContext(), id, c.Locals("user_id").(primitive.ObjectID), isStaff); err != nil {
 		return fiber.ErrForbidden
 	}
 	if err = s.series.Repo.Delete(c.UserContext(), id); err != nil {
@@ -103,7 +106,8 @@ func (s *Server) setSeriesPosts(c *fiber.Ctx) error {
 			ids = append(ids, value)
 		}
 	}
-	if err = s.series.SetPosts(c.UserContext(), id, c.Locals("user_id").(primitive.ObjectID), c.Locals("role") == "admin", ids); err != nil {
+	isStaff := c.Locals("role") == "admin" || c.Locals("role") == "editor"
+	if err = s.series.SetPosts(c.UserContext(), id, c.Locals("user_id").(primitive.ObjectID), isStaff, ids); err != nil {
 		return fiber.NewError(422, err.Error())
 	}
 	return c.SendStatus(204)

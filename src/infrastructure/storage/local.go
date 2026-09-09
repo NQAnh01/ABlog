@@ -20,12 +20,16 @@ func (l Local) Upload(_ context.Context, key string, r io.Reader) (StoredObject,
 	if err := os.MkdirAll(filepath.Dir(p), 0750); err != nil {
 		return StoredObject{}, err
 	}
+	optimized, err := OptimizeImage(r, key)
+	if err != nil {
+		optimized = r
+	}
 	f, err := os.OpenFile(p, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0640)
 	if err != nil {
 		return StoredObject{}, err
 	}
 	defer f.Close()
-	if _, err = io.Copy(f, r); err != nil {
+	if _, err = io.Copy(f, optimized); err != nil {
 		return StoredObject{}, err
 	}
 	return StoredObject{Key: key, URL: l.GetURL(key)}, nil

@@ -58,7 +58,11 @@ func (c *Cloudinary) Upload(ctx context.Context, key string, source io.Reader) (
 	if err != nil {
 		return StoredObject{}, err
 	}
-	if _, err = io.Copy(file, source); err != nil {
+	optimized, err := OptimizeImage(source, key)
+	if err != nil {
+		optimized = source
+	}
+	if _, err = io.Copy(file, optimized); err != nil {
 		return StoredObject{}, err
 	}
 	if err = writer.Close(); err != nil {
@@ -93,7 +97,11 @@ func (c *Cloudinary) Upload(ctx context.Context, key string, source io.Reader) (
 		}
 		return StoredObject{}, fmt.Errorf("Cloudinary upload failed: %s", result.Error)
 	}
-	return StoredObject{Key: result.PublicID, URL: result.SecureURL}, nil
+	secureURL := result.SecureURL
+	if strings.Contains(secureURL, "/upload/") && !strings.Contains(secureURL, "/f_auto") {
+		secureURL = strings.Replace(secureURL, "/upload/", "/upload/f_auto,q_auto,w_1920,c_limit/", 1)
+	}
+	return StoredObject{Key: result.PublicID, URL: secureURL}, nil
 }
 
 func (c *Cloudinary) Delete(ctx context.Context, key string) error {
@@ -117,7 +125,7 @@ func (c *Cloudinary) Delete(ctx context.Context, key string) error {
 }
 
 func (c *Cloudinary) GetURL(key string) string {
-	return "https://res.cloudinary.com/" + url.PathEscape(c.CloudName) + "/image/upload/" + strings.TrimLeft(key, "/")
+	return "https://res.cloudinary.com/" + url.PathEscape(c.CloudName) + "/image/upload/f_auto,q_auto,w_1920,c_limit/" + strings.TrimLeft(key, "/")
 }
 
 func (c *Cloudinary) endpoint(action string) string {

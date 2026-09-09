@@ -11,6 +11,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"lumina/src/domain/model"
+	"lumina/src/domain/productivity"
 )
 
 func pageValues(c *fiber.Ctx) (int, int) {
@@ -80,11 +81,8 @@ func (s *Server) createTodo(c *fiber.Ctx) error {
 	if c.BodyParser(&input) != nil {
 		return bad("INVALID_REQUEST", "Invalid request")
 	}
-	input.Title = strings.TrimSpace(input.Title)
-	input.Notes = strings.TrimSpace(input.Notes)
-	if len(input.Title) < 1 || len(input.Title) > 160 || len(input.Notes) > 1000 {
-		return fiber.NewError(422, "todo title or notes are invalid")
-	}
+	input.Title, input.Notes, e = productivity.Todo(input.Title, input.Notes)
+	if e != nil { return fiber.NewError(422, e.Error()) }
 	now := time.Now().UTC()
 	value := model.Todo{ID: primitive.NewObjectID(), UserID: c.Locals("user_id").(primitive.ObjectID), Title: input.Title, Notes: input.Notes, CreatedAt: now, UpdatedAt: now}
 	if _, e = db.Collection("todos").InsertOne(c.UserContext(), value); e != nil {
@@ -102,12 +100,9 @@ func parseTargetInput(c *fiber.Ctx) (string, string, time.Time, error) {
 	if c.BodyParser(&input) != nil {
 		return "", "", time.Time{}, fiber.NewError(400, "invalid request")
 	}
-	input.Title, input.Description = strings.TrimSpace(input.Title), strings.TrimSpace(input.Description)
-	due, err := time.Parse("2006-01-02", input.DueDate)
-	if input.Title == "" || len(input.Title) > 160 || len(input.Description) > 1000 || err != nil {
-		return "", "", time.Time{}, fiber.NewError(422, "target title, description or due date is invalid")
-	}
-	return input.Title, input.Description, due.UTC(), nil
+	title, description, due, err := productivity.Target(input.Title, input.Description, input.DueDate)
+	if err != nil { return "", "", time.Time{}, fiber.NewError(422, err.Error()) }
+	return title, description, due, nil
 }
 
 func (s *Server) listTargets(c *fiber.Ctx) error {
@@ -314,10 +309,8 @@ func (s *Server) createTargetTodo(c *fiber.Ctx) error {
 	if c.BodyParser(&input) != nil {
 		return bad("INVALID_REQUEST", "Invalid request")
 	}
-	input.Title, input.Notes = strings.TrimSpace(input.Title), strings.TrimSpace(input.Notes)
-	if input.Title == "" || len(input.Title) > 160 || len(input.Notes) > 1000 {
-		return fiber.NewError(422, "todo title or notes are invalid")
-	}
+	input.Title, input.Notes, e = productivity.Todo(input.Title, input.Notes)
+	if e != nil { return fiber.NewError(422, e.Error()) }
 	now := time.Now().UTC()
 	value := model.Todo{ID: primitive.NewObjectID(), UserID: uid, TargetID: id, Title: input.Title, Notes: input.Notes, CreatedAt: now, UpdatedAt: now}
 	if _, e = db.Collection("todos").InsertOne(c.UserContext(), value); e != nil {
@@ -342,11 +335,8 @@ func (s *Server) updateTodo(c *fiber.Ctx) error {
 	if c.BodyParser(&input) != nil {
 		return bad("INVALID_REQUEST", "Invalid request")
 	}
-	input.Title = strings.TrimSpace(input.Title)
-	input.Notes = strings.TrimSpace(input.Notes)
-	if input.Title == "" || len(input.Title) > 160 || len(input.Notes) > 1000 {
-		return fiber.NewError(422, "todo title or notes are invalid")
-	}
+	input.Title, input.Notes, e = productivity.Todo(input.Title, input.Notes)
+	if e != nil { return fiber.NewError(422, e.Error()) }
 	filter := bson.M{"_id": id, "user_id": c.Locals("user_id").(primitive.ObjectID)}
 	after := options.FindOneAndUpdate().SetReturnDocument(options.After)
 	var value model.Todo
@@ -500,11 +490,8 @@ func (s *Server) createDiscussion(c *fiber.Ctx) error {
 	if c.BodyParser(&input) != nil {
 		return bad("INVALID_REQUEST", "Invalid request")
 	}
-	input.Title = strings.TrimSpace(input.Title)
-	input.Content = strings.TrimSpace(input.Content)
-	if len(input.Title) < 5 || len(input.Title) > 180 || len(input.Content) < 10 || len(input.Content) > 5000 {
-		return fiber.NewError(422, "discussion title or content are invalid")
-	}
+	input.Title, input.Content, e = productivity.Discussion(input.Title, input.Content)
+	if e != nil { return fiber.NewError(422, e.Error()) }
 	now := time.Now().UTC()
 	value := model.Discussion{ID: primitive.NewObjectID(), AuthorID: c.Locals("user_id").(primitive.ObjectID), Title: input.Title, Content: input.Content, Comments: []model.DiscussionComment{}, InterestedIDs: []primitive.ObjectID{}, CreatedAt: now, UpdatedAt: now}
 	if _, e = db.Collection("discussions").InsertOne(c.UserContext(), value); e != nil {
@@ -528,9 +515,9 @@ func (s *Server) commentDiscussion(c *fiber.Ctx) error {
 	if c.BodyParser(&input) != nil {
 		return bad("INVALID_REQUEST", "Invalid request")
 	}
-	input.Content = strings.TrimSpace(input.Content)
-	if len(input.Content) < 1 || len(input.Content) > 3000 {
-		return fiber.NewError(422, "comment is invalid")
+	input.Content, e = productivity.DiscussionComment(input.Content)
+	if e != nil {
+		return fiber.NewError(422, e.Error())
 	}
 	value := model.DiscussionComment{ID: primitive.NewObjectID(), UserID: c.Locals("user_id").(primitive.ObjectID), Content: input.Content, CreatedAt: time.Now().UTC()}
 	result, e := db.Collection("discussions").UpdateByID(c.UserContext(), id, bson.M{"$push": bson.M{"comments": value}, "$set": bson.M{"updated_at": time.Now().UTC()}})

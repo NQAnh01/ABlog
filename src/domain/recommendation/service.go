@@ -192,3 +192,10 @@ func (s *Service) Recommend(ctx context.Context, userID primitive.ObjectID, curr
 	}
 	return result, nil
 }
+
+// PrecomputeGlobalRanking pre-warms trending recommendations in background so requests respond instantly.
+func (s *Service) PrecomputeGlobalRanking(ctx context.Context) error {
+	_, err := s.ranked(ctx, primitive.NilObjectID, nil)
+	return err
+}
+

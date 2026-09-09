@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type ButtonHTMLAttributes, type InputHTMLA
 import { useAuth } from '../hooks/useAuth'
 import { CommandPalette } from './CommandPalette'
 import { usePWA } from '../hooks/usePWA'
+import { useToast } from '../hooks/useToast'
 import { accentPreviewEvent, isAccentTheme, savedAccent, type AccentTheme } from '../theme'
 import { ArrowUp, Bookmark, ChevronDown, Compass, Download, Gauge, Home, LogIn, LogOut, Moon, PenLine, Plus, Search, Settings, Sun, X } from 'lucide-react'
 
@@ -77,7 +78,91 @@ export function Header({ dark, onToggleTheme }: { dark: boolean; onToggleTheme: 
   <div className={`mobile-nav-layer${mobileOpen?' open':''}`} aria-hidden={!mobileOpen} onMouseDown={event=>{if(event.target===event.currentTarget)setMobileOpen(false)}}><aside id="mobile-navigation" className="mobile-nav-drawer" aria-label="Mobile navigation"><header><div>{user?<><span className="avatar">{user.avatar?<img src={user.avatar} alt=""/>:user.name?.[0]?.toUpperCase()??'L'}</span><span><strong>{user.name}</strong><small>{user.email}</small></span></>:<><span className="logo-mark">L</span><span><strong>Explore Lumina</strong><small>Stories worth your time</small></span></>}</div><button type="button" aria-label="Close navigation" onClick={()=>setMobileOpen(false)}><X aria-hidden="true"/></button></header><button className="mobile-nav-search" type="button" onClick={openSearch}><span><Search aria-hidden="true"/></span><strong>Search Lumina</strong><kbd>⌘K</kbd></button><nav><NavLink to="/" end><span><Home aria-hidden="true"/></span>Home</NavLink><NavLink to="/blog"><span><Compass aria-hidden="true"/></span>Explore</NavLink><NavLink to="/discussions"><span><Compass aria-hidden="true"/></span>Discussions</NavLink><NavLink to="/profile"><span><PenLine aria-hidden="true"/></span>My Stories</NavLink>{user?.role==='admin'&&<NavLink to="/admin/dashboard"><span><Gauge aria-hidden="true"/></span>Dashboard</NavLink>}{user&&<NavLink to="/saved"><span><Bookmark aria-hidden="true"/></span>Reading List</NavLink>}{!user&&<NavLink to="/register"><span><Plus aria-hidden="true"/></span>Sign Up</NavLink>}</nav><footer>{user&&<Link className="mobile-new-post" to="/admin/posts/create"><Plus aria-hidden="true"/> Create new story</Link>}<button type="button" onClick={onToggleTheme}><span>{dark?<Sun aria-hidden="true"/>:<Moon aria-hidden="true"/>}</span>Switch to {dark?'light':'dark'} theme</button>{user?<><Link to="/todos"><span><Bookmark aria-hidden="true"/></span>Targets &amp; todos</Link><Link to="/profile/settings"><span><Settings aria-hidden="true"/></span>Account settings</Link><button type="button" onClick={()=>void signOut()}><span><LogOut aria-hidden="true"/></span>Sign out</button></>:<Link to="/login"><span><LogIn aria-hidden="true"/></span>Sign in</Link>}</footer></aside></div></>
 }
 
-export function Footer() { const{canInstall,install}=usePWA();return <footer className="site-footer"><div className="container footer-inner"><div><Logo/><p>© 2026 Lumina Publishing Group.</p></div><nav>{canInstall&&<button className="pwa-install" type="button" onClick={()=>void install()}><Download aria-hidden="true"/> Install app</button>}<Link to="/about">About</Link><Link to="/privacy">Privacy</Link><Link to="/socials">Socials</Link></nav></div></footer> }
+export function Footer() {
+  const { canInstall, install } = usePWA()
+  const toast = useToast()
+  const [newsletterEmail, setNewsletterEmail] = useState('')
+  const [newsletterSubscribed, setNewsletterSubscribed] = useState(false)
+
+  const handleSubscribe = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!newsletterEmail.trim() || !newsletterEmail.includes('@')) {
+      toast('Please enter a valid email address')
+      return
+    }
+    setNewsletterSubscribed(true)
+    toast('Thank you for subscribing to Lumina Dispatch!')
+    setNewsletterEmail('')
+  }
+
+  return (
+    <footer className="site-footer">
+      <div className="container footer-content">
+        <div className="footer-grid">
+          <div className="footer-col footer-brand">
+            <Logo />
+            <p className="footer-description">
+              A modern publishing collective dedicated to craft, thoughtful long-form essays, and independent perspectives.
+            </p>
+          </div>
+
+          <div className="footer-col">
+            <h4 className="footer-heading">Discover</h4>
+            <nav className="footer-nav-list">
+              <Link to="/blog">Explore Stories</Link>
+              <Link to="/discussions">Discussions Exchange</Link>
+              <Link to="/saved">Reading List</Link>
+              <Link to="/todos">Targets &amp; Todos</Link>
+            </nav>
+          </div>
+
+          <div className="footer-col">
+            <h4 className="footer-heading">Lumina</h4>
+            <nav className="footer-nav-list">
+              <Link to="/about">About Us</Link>
+              <Link to="/privacy">Privacy Policy</Link>
+              <a href="/sitemap.xml" target="_blank" rel="noreferrer">Sitemap</a>
+            </nav>
+          </div>
+
+          <div className="footer-col footer-newsletter">
+            <h4 className="footer-heading">Lumina Dispatch</h4>
+            <p className="footer-newsletter-text">Hand-curated essays, creative ideas, and commentary delivered weekly.</p>
+            {newsletterSubscribed ? (
+              <div className="footer-newsletter-success" role="status">
+                <span>✓ Subscribed to dispatch</span>
+              </div>
+            ) : (
+              <form className="footer-newsletter-form" onSubmit={handleSubscribe}>
+                <input
+                  type="email"
+                  placeholder="name@example.com"
+                  value={newsletterEmail}
+                  onChange={e => setNewsletterEmail(e.target.value)}
+                  required
+                />
+                <button type="submit" className="button compact">Join</button>
+              </form>
+            )}
+            <small className="footer-newsletter-note">Curated editions every Sunday. No spam.</small>
+          </div>
+        </div>
+
+        <div className="footer-bottom">
+          <p>© 2026 Lumina Publishing Group. All rights reserved.</p>
+          <div className="footer-bottom-actions">
+            {canInstall && (
+              <button className="pwa-install" type="button" onClick={() => void install()}>
+                <Download aria-hidden="true" /> Install app
+              </button>
+            )}
+            <span className="footer-badge">● Systems Operational</span>
+          </div>
+        </div>
+      </div>
+    </footer>
+  )
+}
 function ScrollFeedback() {
   const [visible, setVisible] = useState(false)
   const [progress, setProgress] = useState(0)

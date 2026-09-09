@@ -19,6 +19,10 @@ import (
 
 var ErrInvalidCredentials = errors.New("invalid email or password")
 
+// DefaultAdminResetPassword is intentionally kept in one place so the admin
+// reset workflow and its UI cannot silently diverge.
+const DefaultAdminResetPassword = "Lumina@123"
+
 type Service struct {
 	Users                 repository.UserRepository
 	Sessions              repository.SessionRepository
@@ -64,6 +68,23 @@ func (s Service) ResetPassword(ctx context.Context, token, next, confirm string)
 	}
 	_ = s.PasswordResets.DeleteByHash(ctx, hash)
 	return s.Sessions.DeleteByUser(ctx, reset.UserID)
+}
+
+// AdminResetPassword resets an account, invalidates every active session and
+// cancels any outstanding self-service reset link for that account.
+func (s Service) AdminResetPassword(ctx context.Context, id primitive.ObjectID) error {
+	if _, err := s.Users.FindByID(ctx, id); err != nil {
+		return err
+	}
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte(DefaultAdminResetPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	if err = s.Users.UpdatePassword(ctx, id, string(passwordHash)); err != nil {
+		return err
+	}
+	_ = s.PasswordResets.DeleteByUser(ctx, id)
+	return s.Sessions.DeleteByUser(ctx, id)
 }
 
 type Tokens struct {

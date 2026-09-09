@@ -17,6 +17,8 @@ const AdminPostsPage=lazy(()=>import('./pages/AdminPages').then(module=>({defaul
 const PostEditorPage=lazy(()=>import('./pages/AdminPages').then(module=>({default:module.PostEditorPage})))
 const PostVersionsPage=lazy(()=>import('./pages/AdminPages').then(module=>({default:module.PostVersionsPage})))
 const AdminCommentsPage=lazy(()=>import('./pages/AdminPages').then(module=>({default:module.AdminCommentsPage})))
+const AdminUsersPage=lazy(()=>import('./pages/AdminPages').then(module=>({default:module.AdminUsersPage})))
+const AdminUserDetailPage=lazy(()=>import('./pages/AdminPages').then(module=>({default:module.AdminUserDetailPage})))
 const NotFoundPage=lazy(()=>import('./pages/NotFoundPage').then(module=>({default:module.NotFoundPage})))
 const SavedPage=lazy(()=>import('./pages/SavedPage').then(module=>({default:module.SavedPage})))
 const HomePage=lazy(()=>import('./pages/HomePage').then(module=>({default:module.HomePage})))
@@ -53,6 +55,7 @@ export default function App() {
     '/admin/posts':{title:'Manage stories',description:'Manage Lumina stories.',noIndex:true},
     '/admin/posts/create':{title:'Create story',description:'Create a new Lumina story.',noIndex:true},
     '/admin/comments':{title:'Moderate comments',description:'Moderate Lumina comments.',noIndex:true},
+    '/admin/users':{title:'User administration',description:'Manage Lumina user accounts.',noIndex:true},
     '/admin/series':{title:'Series studio',description:'Manage Lumina story series.',noIndex:true},
   }
   const privateRoute=/^\/(admin|profile|saved|todos|stories)(\/|$)/.test(location.pathname)||['/forgot-password','/reset-password','/offline'].includes(location.pathname)
@@ -97,6 +100,8 @@ export default function App() {
         <Route path="/admin/posts/:id/edit" element={<PostEditorPage/>}/>
         <Route path="/admin/posts/:id/versions" element={<PostVersionsPage/>}/>
         <Route path="/admin/comments" element={<AdminCommentsPage/>}/>
+        <Route path="/admin/users" element={<AdminUsersPage/>}/>
+        <Route path="/admin/users/:id" element={<AdminUserDetailPage/>}/>
         <Route path="*" element={<NotFoundPage/>}/>
       </Routes></Suspense>
     </div>

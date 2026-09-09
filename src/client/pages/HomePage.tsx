@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Layout, StoryGridSkeleton } from '../components/ui'
 import { api } from '../services/api'
@@ -34,7 +34,6 @@ export function HomePage() {
   const [forYou,setForYou]=useState<Post[]>([])
   const [loading,setLoading]=useState(true)
   const [error,setError]=useState('')
-  const [subscribed,setSubscribed]=useState(false)
 
   useEffect(()=>{
     let active=true
@@ -57,7 +56,6 @@ export function HomePage() {
     for(const post of posts){if(!post.author?.id)continue;const current=values.get(post.author.id)??{author:post.author,count:0,categoryIds:[]};current.count++;current.categoryIds.push(...(post.category_ids??[]));values.set(post.author.id,current)}
     return [...values.values()].sort((a,b)=>b.count-a.count).slice(0,3).map(value=>{const topics=[...new Set(value.categoryIds)].map(id=>categories.find(category=>category.id===id)?.name).filter(Boolean).slice(0,2);return{...value,bio:topics.length?`Writing about ${topics.join(' and ')}.`:'A thoughtful voice in the Lumina community.'}})
   },[posts,categories])
-  function subscribe(event:FormEvent<HTMLFormElement>){event.preventDefault();event.currentTarget.reset();setSubscribed(true)}
 
   return <Layout dark><div className="editorial-home">{loading?<div className="home-loading"><StoryGridSkeleton count={6}/></div>:error?<section className="home-error"><h1>The journal is taking a quiet moment.</h1><p>{error}</p><button onClick={()=>window.location.reload()}>Try again</button></section>:<>
     {featured&&<section className="magazine-hero"><div className="magazine-hero-copy"><span className="magazine-kicker">Featured story</span><h1><Link to={`/blog/${featured.slug}`}>{featured.title}</Link></h1><p>{featured.excerpt}</p><StoryMeta post={featured}/><Link className="magazine-read" to={`/blog/${featured.slug}`}>Read the story <span>→</span></Link></div><Link className="magazine-hero-media" to={`/blog/${featured.slug}`} aria-label={`Read ${featured.title}`}><EditorialImage post={featured} eager/></Link><span className="magazine-issue">LUMINA · JOURNAL</span></section>}
@@ -67,6 +65,6 @@ export function HomePage() {
     {featuredSeries.length>0&&<section className="featured-collections home-section"><header><div><span className="magazine-kicker">Read with intention</span><h2>Featured Collections</h2></div></header><div>{featuredSeries.slice(0,3).map((value,index)=><article key={value.id}><Link to={`/series/${value.slug}`}><div className="collection-cover">{value.cover_image?<img src={value.cover_image.url} alt="" loading="lazy"/>:<span>{String(index+1).padStart(2,'0')}</span>}</div><div><small>{value.posts?.length??0} parts · Curated by {value.author?.name??'Lumina'}</small><h3>{value.title}</h3><p>{value.description}</p><b>Explore the series →</b></div></Link></article>)}</div></section>}
     {trending.length>0&&<section className="trending-week home-section"><header><div><span className="magazine-kicker">Published in the last 7 days</span><h2>Trending this week</h2></div></header><div>{trending.slice(0,5).map((post,index)=><CompactStory post={post} index={index} key={post.id}/>)}</div></section>}
     {authors.length>0&&<section className="featured-authors home-section"><header><div><span className="magazine-kicker">Meet the voices</span><h2>Featured Authors</h2></div></header><div>{authors.map(({author,count,bio})=><article key={author.id}><span className="author-portrait">{author.avatar?<img src={author.avatar} alt="" loading="lazy"/>:author.name?.[0]?.toUpperCase()??'L'}</span><div><h3>{author.username?<Link to={`/author/${author.username}`}>{author.name}</Link>:author.name}</h3><p>{author.bio||bio}</p><small>{count} {count===1?'story':'stories'} published</small></div></article>)}</div></section>}
-    <section className="newsletter-cta"><div><span className="magazine-kicker">The Sunday Edition</span><h2>A quieter way to stay curious.</h2><p>One thoughtful collection of stories, delivered occasionally. No noise, no algorithms.</p></div>{subscribed?<div className="newsletter-success"><span>✓</span><strong>You're on the list.</strong><small>Look out for the next edition.</small></div>:<form onSubmit={subscribe}><label><span>Email address</span><input type="email" placeholder="reader@example.com" required/></label><button>Join the journal <span>→</span></button><small>Placeholder signup · newsletter delivery coming soon.</small></form>}</section>
+    <section className="newsletter-cta"><div><span className="magazine-kicker">The Sunday Edition</span><h2>A quieter way to stay curious.</h2><p>One thoughtful collection of stories, delivered occasionally. No noise, no algorithms.</p></div><aside className="newsletter-coming"><span>COMING SOON</span><strong>Newsletter đang được chuẩn bị.</strong><small>Đăng ký sẽ mở khi hệ thống gửi email hoàn thiện.</small></aside></section>
   </>}</div></Layout>
 }

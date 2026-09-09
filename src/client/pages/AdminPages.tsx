@@ -7,7 +7,7 @@ import { useAuth } from '../hooks/useAuth'
 import { api } from '../services/api'
 import { useToast } from '../hooks/useToast'
 import { createAutosaveController, localDraftKey, newestRestorableDraft, readLocalDraft } from '../autosave.mjs'
-import type { Category, Comment, Dashboard, Media, Post, PostDraft, PostInput, PostVersion, Tag } from '../types'
+import type { AdminPasswordReset, Category, Comment, Dashboard, Media, Post, PostDraft, PostInput, PostVersion, Tag, User, UserRole } from '../types'
 import { ViewToggle } from '../components/ViewToggle'
 import { confirmAction } from '../components/ConfirmModal'
 
@@ -31,6 +31,8 @@ export function AdminPostsPage() {
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [selected, setSelected] = useState<string[]>([])
+  const [bulkBusy, setBulkBusy] = useState(false)
   const status = params.get('status') ?? ''
   const query = params.get('q') ?? ''
   const page = Math.max(1, Number(params.get('page')) || 1)
@@ -44,18 +46,83 @@ export function AdminPostsPage() {
     api.myPosts(`?${search}`).then(result => { setPosts(result.items ?? []); setTotal(result.total) }).catch(err => setError(err instanceof Error ? err.message : 'Unable to load stories')).finally(() => setLoading(false))
   }, [status, query, page])
 
+  const allSelected = posts.length > 0 && posts.every(p => selected.includes(p.id))
+  function toggleAll() {
+    if (allSelected) {
+      setSelected([])
+    } else {
+      setSelected(posts.map(p => p.id))
+    }
+  }
+  function toggleOne(id: string) {
+    setSelected(prev => prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id])
+  }
+
+  async function handleBulkAction(action: 'publish' | 'unpublish' | 'delete') {
+    if (selected.length === 0 || bulkBusy) return
+    if (action === 'delete') {
+      const ok = await confirmAction({
+        title: `Delete ${selected.length} ${selected.length === 1 ? 'story' : 'stories'}?`,
+        message: `Permanently delete the selected ${selected.length} stories? This action cannot be undone.`,
+        confirmLabel: 'Delete stories',
+        danger: true,
+      })
+      if (!ok) return
+    }
+    setBulkBusy(true)
+    try {
+      const res = await api.bulkPosts(action, selected)
+      toast(`${res.affected} ${res.affected === 1 ? 'story' : 'stories'} ${action === 'delete' ? 'deleted' : action === 'publish' ? 'published' : 'moved to private'}.`)
+      if (action === 'delete') {
+        setPosts(current => current.filter(item => !selected.includes(item.id)))
+        setTotal(val => Math.max(0, val - res.affected))
+      } else {
+        const nextStatus = action === 'publish' ? 'public' : 'private'
+        setPosts(current => current.map(item => selected.includes(item.id) ? { ...item, status: nextStatus } : item))
+      }
+      setSelected([])
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Bulk action failed')
+    } finally {
+      setBulkBusy(false)
+    }
+  }
+
   async function remove(post: Post) {
     if (!await confirmAction({title:'Delete story?',message:`“${post.title}” will be permanently deleted. This action cannot be undone.`,confirmLabel:'Delete story',danger:true})) return
-    try { await api.deletePost(post.id); setPosts(current => current.filter(item => item.id !== post.id)); setTotal(value => value - 1); toast('Story deleted successfully.') }
+    try { await api.deletePost(post.id); setPosts(current => current.filter(item => item.id !== post.id)); setTotal(value => value - 1); setSelected(prev => prev.filter(id => id !== post.id)); toast('Story deleted successfully.') }
     catch (err) { setError(err instanceof Error ? err.message : 'Unable to delete story') }
   }
 
+  const isStaff = user?.role === 'admin' || user?.role === 'editor'
+
   return <AdminGuard><Layout><section className="admin admin-dashboard container">
-    <header className="admin-heading"><div><span className="eyebrow">{user?.role === 'admin' ? 'EDITORIAL DESK' : 'YOUR WRITING DESK'}</span><h1>{user?.role === 'admin' ? 'All stories' : 'Your stories'}</h1><p>Write freely, then choose who can see each story.</p></div><Link className="button" to="/admin/posts/create">Create story&nbsp; +</Link></header>
+    <header className="admin-heading"><div><span className="eyebrow">{isStaff ? 'EDITORIAL DESK' : 'YOUR WRITING DESK'}</span><h1>{isStaff ? 'All stories' : 'Your stories'}</h1><p>Write freely, then choose who can see each story.</p></div><Link className="button" to="/admin/posts/create">Create story&nbsp; +</Link></header>
     <div className="admin-toolbar"><form onSubmit={event => { event.preventDefault(); const data = new FormData(event.currentTarget); const next = new URLSearchParams(params); const value = String(data.get('q') ?? '').trim(); value ? next.set('q', value) : next.delete('q'); setParams(next) }}><span>⌕</span><input name="q" defaultValue={query} placeholder="Search your stories" /></form><div className="status-tabs">{[['','All'],['private','Private'],['public','Public']].map(([value,label]) => <button className={status === value ? 'active' : ''} key={value} onClick={() => { const next = new URLSearchParams(params); value ? next.set('status', value) : next.delete('status'); setParams(next) }}>{label}</button>)}</div><ViewToggle targetId="admin-stories-view" storageKey="admin-stories"/><span className="story-count">{total} {total === 1 ? 'story' : 'stories'}</span></div>
     {error && <div className="admin-alert">{error}<button onClick={() => setError('')}>×</button></div>}
-    {loading ? <Loading /> : posts.length === 0 ? <EmptyState title="No stories here yet" text="Create a story and choose its visibility." /> : <div className="story-table" id="admin-stories-view"><div className="story-row story-table-head"><span>Story</span><span>Visibility</span><span>Last updated</span><span>Actions</span></div>{posts.map(post => <article className="story-row" key={post.id}><div className="story-identity">{post.thumbnail?.url ? <img src={post.thumbnail.url} alt="" /> : <span className="story-placeholder">L</span>}<div><Link to={`/admin/posts/${post.id}/edit`}>{post.title}</Link><small>/{post.slug}</small></div></div><span><i className={`status-dot ${post.status}`} />{post.status}</span><time>{formatDate(post.updated_at ?? post.created_at)}</time><div className="row-actions">{post.status === 'public' && <Link title="View story" to={`/blog/${post.slug}`}>↗</Link>}<Link title="Edit story" to={`/admin/posts/${post.id}/edit`}>Edit</Link><button title="Delete story" onClick={() => void remove(post)}>Delete</button></div></article>)}</div>}
+    {loading ? <Loading /> : posts.length === 0 ? <EmptyState title="No stories here yet" text="Create a story and choose its visibility." /> : <div className="story-table" id="admin-stories-view"><div className="story-row story-table-head"><label className="bulk-checkbox-cell" title="Select all stories on this page"><input type="checkbox" checked={allSelected} onChange={toggleAll} aria-label="Select all stories" /></label><span>Story</span><span>Visibility</span><span>Last updated</span><span>Actions</span></div>{posts.map(post => <article className={`story-row ${selected.includes(post.id) ? 'selected-row' : ''}`} key={post.id}><label className="bulk-checkbox-cell" title={`Select "${post.title}"`}><input type="checkbox" checked={selected.includes(post.id)} onChange={() => toggleOne(post.id)} aria-label={`Select ${post.title}`} /></label><div className="story-identity">{post.thumbnail?.url ? <img src={post.thumbnail.url} alt="" /> : <span className="story-placeholder">L</span>}<div><Link to={`/admin/posts/${post.id}/edit`}>{post.title}</Link><small>/{post.slug}</small></div></div><span><i className={`status-dot ${post.status}`} />{post.status}</span><time>{formatDate(post.updated_at ?? post.created_at)}</time><div className="row-actions">{post.status === 'public' && <Link title="View story" to={`/blog/${post.slug}`}>↗</Link>}<Link title="Edit story" to={`/admin/posts/${post.id}/edit`}>Edit</Link><button title="Delete story" onClick={() => void remove(post)}>Delete</button></div></article>)}</div>}
     <Pagination page={page} total={total} onPage={next => { const value = new URLSearchParams(params); next > 1 ? value.set('page', String(next)) : value.delete('page'); setParams(value) }} />
+    {selected.length > 0 && (
+      <aside className="bulk-action-bar" role="toolbar" aria-label="Bulk post actions">
+        <span className="bulk-selection-count">
+          <strong>{selected.length}</strong> {selected.length === 1 ? 'story' : 'stories'} selected
+        </span>
+        <div className="bulk-action-buttons">
+          <button type="button" disabled={bulkBusy} onClick={() => void handleBulkAction('publish')} className="bulk-btn publish">
+            ✓ Publish
+          </button>
+          <button type="button" disabled={bulkBusy} onClick={() => void handleBulkAction('unpublish')} className="bulk-btn unpublish">
+            ⚑ Move to private
+          </button>
+          <button type="button" disabled={bulkBusy} onClick={() => void handleBulkAction('delete')} className="bulk-btn delete">
+            🗑 Delete
+          </button>
+          <button type="button" disabled={bulkBusy} onClick={() => setSelected([])} className="bulk-btn cancel">
+            Clear
+          </button>
+        </div>
+      </aside>
+    )}
   </section></Layout></AdminGuard>
 }
 
@@ -259,10 +326,10 @@ export function PostVersionsPage() {
 
 export function AdminDashboardPage() {
   const { user, loading: authLoading } = useAuth(); const [data, setData] = useState<Dashboard | null>(null); const [error, setError] = useState('')
-  useEffect(() => { if (user?.role === 'admin') api.dashboard().then(setData).catch(err => setError(err instanceof Error ? err.message : 'Unable to load dashboard')) }, [user])
+  useEffect(() => { if (user?.role === 'admin' || user?.role === 'editor') api.dashboard().then(setData).catch(err => setError(err instanceof Error ? err.message : 'Unable to load dashboard')) }, [user])
   if (authLoading) return <Layout><Loading /></Layout>
   if (!user) return <Navigate to="/login" replace />
-  if (user.role !== 'admin') return <Navigate to="/admin/posts" replace />
+  if (user.role !== 'admin' && user.role !== 'editor') return <Navigate to="/admin/posts" replace />
   if (!data) return <Layout><section className="analytics-dashboard container"><header className="admin-heading"><div><span className="eyebrow">EDITORIAL OVERVIEW</span><h1>Dashboard</h1><p>A quick view of publishing activity across Lumina.</p></div></header>{error?<ErrorState message={error}/>:<Loading/>}</section></Layout>
   const publishedRate = data.posts ? Math.round(data.published / data.posts * 100) : 0
   const stats = [
@@ -275,11 +342,466 @@ export function AdminDashboardPage() {
   ]
   const chartMax = Math.max(...stats.map(item => item.value), 1)
   return <Layout><section className="analytics-dashboard container">
-    <header className="dashboard-hero"><div><span className="eyebrow">EDITORIAL OVERVIEW</span><h1>Good to see you, {user.name.split(' ')[0]}.</h1><p>Here’s what’s happening across your publication today.</p></div><div className="dashboard-actions"><span className="dashboard-live"><i/>Live overview</span><Link className="button" to="/admin/posts">Manage stories <span>→</span></Link></div></header>
+    <header className="dashboard-hero"><div><span className="eyebrow">EDITORIAL OVERVIEW</span><h1>Good to see you, {user.name.split(' ')[0]}.</h1><p>Here’s what’s happening across your publication today.</p></div><div className="dashboard-actions"><span className="dashboard-live"><i/>Live overview</span>{user.role === 'admin' && <Link className="button" to="/admin/users">Manage users <span>→</span></Link>}<Link className="button" to="/admin/posts">Manage stories <span>→</span></Link></div></header>
     <div className="dashboard-stat-grid">{stats.map((item,index)=><article className={`dashboard-stat ${item.tone}`} style={{'--stat-index':index} as React.CSSProperties} key={item.label}><header><span className="dashboard-stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24">{item.icon==='document'?<><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v5h5M9 12h6M9 16h6"/></>:item.icon==='check'?<><circle cx="12" cy="12" r="9"/><path d="m8 12 2.5 2.5L16 9"/></>:item.icon==='lock'?<><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></>:item.icon==='comment'?<><path d="M20 15a3 3 0 0 1-3 3H9l-5 3V7a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3z"/><path d="M8 9h8M8 13h5"/></>:item.icon==='grid'?<><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/></>:<><path d="M20 13 11 22l-9-9V4h9z"/><circle cx="7" cy="9" r="1.5"/></>}</svg></span><span className="dashboard-stat-label">{item.label}</span></header><strong>{item.value.toLocaleString()}</strong><footer><span>{item.note}</span><i style={{'--meter':`${Math.max(8,item.value/chartMax*100)}%`} as React.CSSProperties}/></footer></article>)}</div>
     <div className="dashboard-content-grid"><section className="overview-panel"><header><div><span className="panel-kicker">CONTENT MIX</span><h2>Publication overview</h2></div><span className="panel-period">All time</span></header><div className="overview-chart"><div className="donut-wrap"><div className="donut-chart" style={{'--published':`${publishedRate * 3.6}deg`} as React.CSSProperties}><div><strong>{publishedRate}%</strong><span>published</span></div></div><div className="donut-legend"><span><i className="published"/>Published <strong>{data.published}</strong></span><span><i className="private"/>Private <strong>{data.private}</strong></span></div></div><div className="metric-bars">{stats.slice(3).map((item,index)=><div key={item.label}><header><span>{item.label}</span><strong>{item.value}</strong></header><i><b style={{'--bar-size':`${Math.max(5,item.value/chartMax*100)}%`,'--bar-index':index} as React.CSSProperties}/></i></div>)}</div></div></section>
     <section className="recent-panel modern"><header><div><span className="panel-kicker">LATEST ACTIVITY</span><h2>Recently updated</h2></div><Link to="/admin/posts">View all <span>→</span></Link></header>{data.recent_posts.length?<div className="activity-list">{data.recent_posts.map((post,index)=><article style={{'--activity-index':index} as React.CSSProperties} key={post.id}><span className="activity-marker" aria-hidden="true">{post.title.charAt(0)}</span><div><strong>{post.title}</strong><small>Updated {formatDate(post.updated_at)}</small></div><span className={`profile-status ${post.status}`}>{post.status}</span><Link aria-label={`Edit ${post.title}`} to={`/admin/posts/${post.id}/edit`}>↗</Link></article>)}</div>:<EmptyState title="No stories yet" text="Create the first story to populate the dashboard."/>}</section></div>
   </section></Layout>
+}
+
+export function AdminUsersPage() {
+  const {user,loading:authLoading}=useAuth(); const toast=useToast()
+  const [users,setUsers]=useState<User[]>([]); const [requests,setRequests]=useState<AdminPasswordReset[]>([])
+  const [loading,setLoading]=useState(true); const [error,setError]=useState(''); const [busy,setBusy]=useState('')
+  const load=()=>Promise.all([api.adminUsers(),api.adminPasswordResets()]).then(([all,resetRequests])=>{setUsers(all);setRequests(resetRequests)})
+  useEffect(()=>{if(user?.role==='admin')load().catch(err=>setError(err instanceof Error?err.message:'Unable to load users')).finally(()=>setLoading(false))},[user])
+  if(authLoading)return <Layout><Loading/></Layout>; if(!user)return <Navigate to="/login" replace/>; if(user.role!=='admin')return <Navigate to="/profile" replace/>
+  async function resetAccount(account:User){if(!await confirmAction({title:'Reset this password?',message:`${account.name} will be signed out everywhere. Their new temporary password will be Lumina@123.`,confirmLabel:'Reset password',danger:true}))return;setBusy(account.id);setError('');try{await api.adminResetUserPassword(account.id);setRequests(current=>current.filter(item=>item.user.id!==account.id));toast(`Password reset for ${account.name}. Temporary password: Lumina@123`)}catch(err){setError(err instanceof Error?err.message:'Unable to reset password')}finally{setBusy('')}}
+  const requested=new Set(requests.map(item=>item.user.id))
+  return <Layout><section className="admin admin-dashboard container"><header className="admin-heading"><div><span className="eyebrow">ACCOUNT ADMINISTRATION</span><h1>Users & password requests</h1><p>Click a user to view their account information.</p></div><Link to="/admin/dashboard">← Dashboard</Link></header>{error&&<div className="admin-alert">{error}</div>}{loading?<Loading/>:<section className="comment-queue"><header><h2>All users <small>({users.length})</small></h2></header>{users.length?<div className="story-table"><div className="story-row story-table-head"><span>User</span><span>Phone</span><span>Role</span><span>Action</span></div>{users.map(account=><article className="story-row" key={account.id}><div className="story-identity">{account.avatar?<img src={account.avatar} alt=""/>:<span className="story-placeholder">{account.name[0]?.toUpperCase()??'L'}</span>}<div><Link to={`/admin/users/${account.id}`}>{account.name}</Link><small>{account.email}{account.username?` · @${account.username}`:''}</small></div></div><span>{account.phone||'—'}</span><span>{account.role}</span><div className="row-actions"><Link to={`/admin/users/${account.id}`}>View</Link><button disabled={busy===account.id} onClick={()=>void resetAccount(account)}>{busy===account.id?'Resetting…':requested.has(account.id)?'Reset request':'Reset password'}</button></div></article>)}</div>:<EmptyState title="No users found"/>}</section>}</section></Layout>
+}
+
+export function AdminUserDetailPage() {
+  const { id = '' } = useParams()
+  const { user, loading: authLoading } = useAuth()
+  const [account, setAccount] = useState<User | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [uploadingAvatar, setUploadingAvatar] = useState(false)
+  const [resettingPassword, setResettingPassword] = useState(false)
+  const [error, setError] = useState('')
+  const toast = useToast()
+
+  const [name, setName] = useState('')
+  const [email, setEmail] = useState('')
+  const [username, setUsername] = useState('')
+  const [phone, setPhone] = useState('')
+  const [role, setRole] = useState<UserRole>('user')
+  const [bio, setBio] = useState('')
+  const [avatar, setAvatar] = useState('')
+  const [website, setWebsite] = useState('')
+  const [x, setX] = useState('')
+  const [linkedin, setLinkedin] = useState('')
+
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const populateForm = (data: User) => {
+    setName(data.name || '')
+    setEmail(data.email || '')
+    setUsername(data.username ? data.username.replace(/^@/, '') : '')
+    setPhone(data.phone || '')
+    setRole(data.role || 'user')
+    setBio(data.bio || '')
+    setAvatar(data.avatar || '')
+    setWebsite(data.social_links?.website || '')
+    setX(data.social_links?.x || '')
+    setLinkedin(data.social_links?.linkedin || '')
+  }
+
+  useEffect(() => {
+    if (user?.role === 'admin') {
+      setLoading(true)
+      api.adminUser(id)
+        .then(data => {
+          setAccount(data)
+          populateForm(data)
+        })
+        .catch(err => setError(err instanceof Error ? err.message : 'Unable to load user'))
+        .finally(() => setLoading(false))
+    }
+  }, [user, id])
+
+  if (authLoading) return <Layout><Loading /></Layout>
+  if (!user) return <Navigate to="/login" replace />
+  if (user.role !== 'admin') return <Navigate to="/profile" replace />
+
+  if (loading) return <Layout><Loading /></Layout>
+  if (error && !account) return (
+    <Layout>
+      <section className="admin admin-user-detail container">
+        <Link to="/admin/users" className="admin-back-link">← Back to all users</Link>
+        <ErrorState message={error} />
+      </section>
+    </Layout>
+  )
+  if (!account) return null
+
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploadingAvatar(true)
+    setError('')
+    try {
+      const media = await api.uploadImage(file)
+      setAvatar(media.url)
+      toast('Avatar image uploaded')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to upload avatar')
+    } finally {
+      setUploadingAvatar(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+
+  const handleSave = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!name.trim()) {
+      setError('Name is required')
+      return
+    }
+    if (!email.trim() || !email.includes('@')) {
+      setError('A valid email address is required')
+      return
+    }
+    setSaving(true)
+    setError('')
+    try {
+      const payload: Partial<User> = {
+        name: name.trim(),
+        email: email.trim().toLowerCase(),
+        username: username.trim().replace(/^@/, '').toLowerCase(),
+        phone: phone.trim(),
+        role,
+        bio: bio.trim(),
+        avatar: avatar.trim(),
+        social_links: {
+          website: website.trim(),
+          x: x.trim(),
+          linkedin: linkedin.trim(),
+          links: account.social_links?.links || []
+        }
+      }
+      const updated = await api.adminUpdateUser(id, payload)
+      setAccount(updated)
+      populateForm(updated)
+      toast(`User ${updated.name} updated successfully!`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update user')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleResetPassword = async () => {
+    if (!await confirmAction({
+      title: 'Reset user password?',
+      message: `${account.name} will be signed out everywhere. Their new temporary password will be Lumina@123.`,
+      confirmLabel: 'Reset password',
+      danger: true
+    })) return
+    setResettingPassword(true)
+    setError('')
+    try {
+      await api.adminResetUserPassword(account.id)
+      toast(`Password reset for ${account.name}. New password: Lumina@123`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to reset password')
+    } finally {
+      setResettingPassword(false)
+    }
+  }
+
+  const handleDiscard = () => {
+    if (account) {
+      populateForm(account)
+      setError('')
+      toast('Changes discarded')
+    }
+  }
+
+  const formattedJoined = account.created_at
+    ? new Intl.DateTimeFormat('en', { dateStyle: 'long', timeStyle: 'short' }).format(new Date(account.created_at))
+    : 'Unknown'
+  const formattedUpdated = account.updated_at
+    ? new Intl.DateTimeFormat('en', { dateStyle: 'long', timeStyle: 'short' }).format(new Date(account.updated_at))
+    : 'Never'
+
+  return (
+    <Layout>
+      <section className="admin admin-user-detail container">
+        <header className="admin-heading user-detail-header">
+          <div>
+            <div className="admin-header-breadcrumbs">
+              <Link to="/admin/dashboard">Dashboard</Link>
+              <span>/</span>
+              <Link to="/admin/users">Users</Link>
+              <span>/</span>
+              <span>Edit user</span>
+            </div>
+            <h1>Edit user: {account.name}</h1>
+            <p>Admin control center to manage account profile, permissions, and credentials.</p>
+          </div>
+          <div className="admin-header-actions">
+            <Link to="/admin/users" className="button compact secondary">← All users</Link>
+            {account.username && (
+              <Link to={`/authors/${account.username}`} target="_blank" className="button compact secondary">
+                View author page ↗
+              </Link>
+            )}
+            <button
+              type="button"
+              className="button compact danger"
+              disabled={resettingPassword}
+              onClick={handleResetPassword}
+            >
+              {resettingPassword ? 'Resetting…' : 'Reset password'}
+            </button>
+          </div>
+        </header>
+
+        {error && <div className="admin-alert">{error}</div>}
+
+        <form onSubmit={handleSave} className="admin-user-edit-form">
+          {/* Top Hero: Avatar & Name on top */}
+          <div className="admin-user-top-hero">
+            <div className="admin-user-avatar-wrap">
+              <div className="admin-avatar-preview">
+                {avatar ? (
+                  <img src={avatar} alt={name || 'User avatar'} />
+                ) : (
+                  <span className="admin-avatar-initial">{(name || account.name || 'U')[0]?.toUpperCase()}</span>
+                )}
+                <label className="admin-avatar-upload-overlay" title="Upload avatar image">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    ref={fileInputRef}
+                    onChange={handleAvatarUpload}
+                    disabled={uploadingAvatar}
+                    style={{ display: 'none' }}
+                  />
+                  <span>{uploadingAvatar ? '…' : '📷 Change'}</span>
+                </label>
+              </div>
+            </div>
+
+            <div className="admin-user-hero-identity">
+              <div className="admin-user-hero-title-row">
+                <input
+                  type="text"
+                  className="admin-user-hero-name-input"
+                  value={name}
+                  onChange={e => setName(e.target.value)}
+                  placeholder="Full name"
+                  required
+                />
+                <span className={`admin-role-badge ${role}`}>{role}</span>
+              </div>
+              <div className="admin-user-hero-meta">
+                <span>@{username || 'no-username'}</span>
+                <span>·</span>
+                <span>{email}</span>
+                {account.created_at && (
+                  <>
+                    <span>·</span>
+                    <span>Joined {new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(account.created_at))}</span>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Form Sections Below Avatar & Name */}
+          <div className="admin-user-edit-grid">
+            {/* Column 1: Core Credentials & Identity */}
+            <div className="admin-user-edit-panel">
+              <h3>Account Credentials & Identity</h3>
+              <p className="panel-desc">Primary login and contact identifiers.</p>
+
+              <label className="admin-form-field">
+                <span>Full Name <em>*</em></span>
+                <input
+                  type="text"
+                  value={name}
+                  onChange={e => setName(e.target.value)}
+                  placeholder="e.g. Eleanor Vance"
+                  maxLength={100}
+                  required
+                />
+              </label>
+
+              <label className="admin-form-field">
+                <span>Email Address <em>*</em></span>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  placeholder="reader@example.com"
+                  required
+                />
+              </label>
+
+              <div className="admin-form-row">
+                <label className="admin-form-field">
+                  <span>Username</span>
+                  <div className="input-with-prefix">
+                    <span>@</span>
+                    <input
+                      type="text"
+                      value={username}
+                      onChange={e => setUsername(e.target.value.replace(/[^a-zA-Z0-9_-]/g, ''))}
+                      placeholder="username"
+                      maxLength={30}
+                    />
+                  </div>
+                </label>
+
+                <label className="admin-form-field">
+                  <span>Phone</span>
+                  <input
+                    type="tel"
+                    value={phone}
+                    onChange={e => setPhone(e.target.value)}
+                    placeholder="+84 901 234 567"
+                  />
+                </label>
+              </div>
+
+              <div className="admin-form-field">
+                <span>Account Role</span>
+                <div className="admin-role-selector">
+                  <label className={`role-pill-option ${role === 'user' ? 'active' : ''}`}>
+                    <input
+                      type="radio"
+                      name="role"
+                      value="user"
+                      checked={role === 'user'}
+                      onChange={() => setRole('user')}
+                    />
+                    <strong>User</strong>
+                    <small>Standard reader & author</small>
+                  </label>
+                  <label className={`role-pill-option ${role === 'editor' ? 'active' : ''}`}>
+                    <input
+                      type="radio"
+                      name="role"
+                      value="editor"
+                      checked={role === 'editor'}
+                      onChange={() => setRole('editor')}
+                    />
+                    <strong>Editor</strong>
+                    <small>Editorial & moderation control</small>
+                  </label>
+                  <label className={`role-pill-option ${role === 'admin' ? 'active' : ''}`}>
+                    <input
+                      type="radio"
+                      name="role"
+                      value="admin"
+                      checked={role === 'admin'}
+                      onChange={() => setRole('admin')}
+                    />
+                    <strong>Admin</strong>
+                    <small>Full administrative control</small>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            {/* Column 2: Profile & Socials */}
+            <div className="admin-user-edit-panel">
+              <h3>Author Profile & Bio</h3>
+              <p className="panel-desc">Public biography, avatar URL, and web links.</p>
+
+              <label className="admin-form-field">
+                <span>Biography</span>
+                <textarea
+                  rows={4}
+                  value={bio}
+                  onChange={e => setBio(e.target.value)}
+                  placeholder="Write a short summary about this author..."
+                  maxLength={1000}
+                />
+                <small className="field-hint">{bio.length}/1000 characters</small>
+              </label>
+
+              <label className="admin-form-field">
+                <span>Avatar Image URL</span>
+                <div className="input-with-action">
+                  <input
+                    type="url"
+                    value={avatar}
+                    onChange={e => setAvatar(e.target.value)}
+                    placeholder="https://example.com/avatar.jpg"
+                  />
+                  <button
+                    type="button"
+                    className="button compact secondary"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={uploadingAvatar}
+                  >
+                    {uploadingAvatar ? 'Uploading…' : 'Upload file'}
+                  </button>
+                </div>
+              </label>
+
+              <div className="admin-social-fields">
+                <label className="admin-form-field">
+                  <span>Website</span>
+                  <input
+                    type="url"
+                    value={website}
+                    onChange={e => setWebsite(e.target.value)}
+                    placeholder="https://author.me"
+                  />
+                </label>
+
+                <div className="admin-form-row">
+                  <label className="admin-form-field">
+                    <span>X (Twitter)</span>
+                    <input
+                      type="url"
+                      value={x}
+                      onChange={e => setX(e.target.value)}
+                      placeholder="https://x.com/author"
+                    />
+                  </label>
+
+                  <label className="admin-form-field">
+                    <span>LinkedIn</span>
+                    <input
+                      type="url"
+                      value={linkedin}
+                      onChange={e => setLinkedin(e.target.value)}
+                      placeholder="https://linkedin.com/in/author"
+                    />
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* System Metadata Panel */}
+          <div className="admin-user-metadata-panel">
+            <div>
+              <span className="meta-label">User ID</span>
+              <code className="meta-val">{account.id}</code>
+            </div>
+            <div>
+              <span className="meta-label">Member Since</span>
+              <span className="meta-val">{formattedJoined}</span>
+            </div>
+            <div>
+              <span className="meta-label">Last Updated</span>
+              <span className="meta-val">{formattedUpdated}</span>
+            </div>
+          </div>
+
+          {/* Action Bar */}
+          <div className="admin-user-form-actions">
+            <div className="left-actions">
+              <Link to="/admin/users" className="button secondary">Cancel</Link>
+              <button type="button" onClick={handleDiscard} className="button secondary">Discard changes</button>
+            </div>
+            <div className="right-actions">
+              <button type="submit" className="button primary" disabled={saving}>
+                {saving ? 'Saving changes…' : 'Save all changes'}
+              </button>
+            </div>
+          </div>
+        </form>
+      </section>
+    </Layout>
+  )
 }
 
 export function AdminCommentsPage() {

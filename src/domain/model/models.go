@@ -5,6 +5,19 @@ import (
 	"time"
 )
 
+const (
+	RoleUser   = "user"
+	RoleEditor = "editor"
+	RoleAdmin  = "admin"
+)
+
+type FeatureFlag struct {
+	Key         string    `bson:"key" json:"key"`
+	Enabled     bool      `bson:"enabled" json:"enabled"`
+	Description string    `bson:"description" json:"description"`
+	UpdatedAt   time.Time `bson:"updated_at" json:"updated_at"`
+}
+
 type User struct {
 	ID                  primitive.ObjectID   `bson:"_id,omitempty" json:"id"`
 	Email               string               `bson:"email" json:"email"`
@@ -60,6 +73,12 @@ type Media struct {
 	Key string `bson:"key" json:"key"`
 	URL string `bson:"url" json:"url"`
 }
+const (
+	PostStatusPrivate   = "private"
+	PostStatusPublic    = "public"
+	PostStatusScheduled = "scheduled"
+)
+
 type Post struct {
 	ID                primitive.ObjectID   `bson:"_id,omitempty" json:"id"`
 	Title             string               `bson:"title" json:"title"`

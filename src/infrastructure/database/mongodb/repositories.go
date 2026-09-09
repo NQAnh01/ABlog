@@ -45,7 +45,7 @@ func New(ctx context.Context, uri, name string) (*mongo.Client, *Repositories, e
 	return c, r, nil
 }
 func (r *Repositories) indexes(ctx context.Context) error {
-	spec := map[string][]mongo.IndexModel{"users": {{Keys: bson.D{{Key: "email", Value: 1}}, Options: options.Index().SetUnique(true)}, {Keys: bson.D{{Key: "username", Value: 1}}, Options: options.Index().SetUnique(true)}}, "posts": {{Keys: bson.D{{Key: "slug", Value: 1}}, Options: options.Index().SetUnique(true)}, {Keys: bson.D{{Key: "status", Value: 1}, {Key: "published_at", Value: -1}}}, {Keys: bson.D{{Key: "author_id", Value: 1}, {Key: "published_at", Value: -1}}}, {Keys: bson.D{{Key: "tag_ids", Value: 1}, {Key: "status", Value: 1}, {Key: "published_at", Value: -1}}}, {Keys: bson.D{{Key: "category_ids", Value: 1}, {Key: "status", Value: 1}, {Key: "published_at", Value: -1}}}}, "post_versions": {{Keys: bson.D{{Key: "post_id", Value: 1}, {Key: "number", Value: -1}}, Options: options.Index().SetUnique(true)}}, "comments": {{Keys: bson.D{{Key: "post_id", Value: 1}, {Key: "created_at", Value: 1}}}}, "categories": {{Keys: bson.D{{Key: "slug", Value: 1}}, Options: options.Index().SetUnique(true)}}, "tags": {{Keys: bson.D{{Key: "slug", Value: 1}}, Options: options.Index().SetUnique(true)}}, "refresh_sessions": {{Keys: bson.D{{Key: "token_hash", Value: 1}}, Options: options.Index().SetUnique(true)}, {Keys: bson.D{{Key: "expires_at", Value: 1}}, Options: options.Index().SetExpireAfterSeconds(0)}}, "bookmarks": {{Keys: bson.D{{Key: "user_id", Value: 1}, {Key: "post_id", Value: 1}}, Options: options.Index().SetUnique(true)}}, "follows": {{Keys: bson.D{{Key: "follower_id", Value: 1}, {Key: "author_id", Value: 1}}, Options: options.Index().SetUnique(true)}, {Keys: bson.D{{Key: "author_id", Value: 1}}}}, "password_resets": {{Keys: bson.D{{Key: "token_hash", Value: 1}}, Options: options.Index().SetUnique(true)}, {Keys: bson.D{{Key: "expires_at", Value: 1}}, Options: options.Index().SetExpireAfterSeconds(0)}}}
+	spec := map[string][]mongo.IndexModel{"users": {{Keys: bson.D{{Key: "email", Value: 1}}, Options: options.Index().SetUnique(true)}, {Keys: bson.D{{Key: "username", Value: 1}}, Options: options.Index().SetUnique(true)}}, "posts": {{Keys: bson.D{{Key: "slug", Value: 1}}, Options: options.Index().SetUnique(true)}, {Keys: bson.D{{Key: "status", Value: 1}, {Key: "published_at", Value: -1}}}, {Keys: bson.D{{Key: "author_id", Value: 1}, {Key: "published_at", Value: -1}}}, {Keys: bson.D{{Key: "tag_ids", Value: 1}, {Key: "status", Value: 1}, {Key: "published_at", Value: -1}}}, {Keys: bson.D{{Key: "category_ids", Value: 1}, {Key: "status", Value: 1}, {Key: "published_at", Value: -1}}}, {Keys: bson.D{{Key: "title", Value: "text"}, {Key: "excerpt", Value: "text"}, {Key: "content", Value: "text"}}, Options: options.Index().SetWeights(bson.M{"title": 10, "excerpt": 5, "content": 1}).SetName("posts_text_search")}}, "post_versions": {{Keys: bson.D{{Key: "post_id", Value: 1}, {Key: "number", Value: -1}}, Options: options.Index().SetUnique(true)}}, "comments": {{Keys: bson.D{{Key: "post_id", Value: 1}, {Key: "created_at", Value: 1}}}}, "categories": {{Keys: bson.D{{Key: "slug", Value: 1}}, Options: options.Index().SetUnique(true)}}, "tags": {{Keys: bson.D{{Key: "slug", Value: 1}}, Options: options.Index().SetUnique(true)}}, "refresh_sessions": {{Keys: bson.D{{Key: "token_hash", Value: 1}}, Options: options.Index().SetUnique(true)}, {Keys: bson.D{{Key: "expires_at", Value: 1}}, Options: options.Index().SetExpireAfterSeconds(0)}}, "bookmarks": {{Keys: bson.D{{Key: "user_id", Value: 1}, {Key: "post_id", Value: 1}}, Options: options.Index().SetUnique(true)}}, "follows": {{Keys: bson.D{{Key: "follower_id", Value: 1}, {Key: "author_id", Value: 1}}, Options: options.Index().SetUnique(true)}, {Keys: bson.D{{Key: "author_id", Value: 1}}}}, "password_resets": {{Keys: bson.D{{Key: "token_hash", Value: 1}}, Options: options.Index().SetUnique(true)}, {Keys: bson.D{{Key: "expires_at", Value: 1}}, Options: options.Index().SetExpireAfterSeconds(0)}}}
 	for n, idx := range spec {
 		if _, e := r.DB.Collection(n).Indexes().CreateMany(ctx, idx); e != nil {
 			return e
@@ -188,8 +188,19 @@ func (r *Posts) List(ctx context.Context, f repository.PostFilter) ([]model.Post
 	if f.FeaturedOnly {
 		q["is_featured"] = true
 	}
+	findOpts := options.Find().SetProjection(bson.M{"content": 0, "autosave": 0}).SetSkip(int64((f.Page - 1) * f.Limit)).SetLimit(int64(f.Limit))
 	if f.Search != "" {
-		q["$or"] = []bson.M{{"title": bson.M{"$regex": f.Search, "$options": "i"}}, {"excerpt": bson.M{"$regex": f.Search, "$options": "i"}}}
+		searchTerm := strings.TrimSpace(f.Search)
+		if len(searchTerm) >= 2 {
+			q["$text"] = bson.M{"$search": searchTerm}
+			findOpts.SetProjection(bson.M{"content": 0, "autosave": 0, "score": bson.M{"$meta": "textScore"}})
+			findOpts.SetSort(bson.D{{Key: "score", Value: bson.M{"$meta": "textScore"}}, {Key: "published_at", Value: -1}})
+		} else {
+			q["$or"] = []bson.M{{"title": bson.M{"$regex": searchTerm, "$options": "i"}}, {"excerpt": bson.M{"$regex": searchTerm, "$options": "i"}}}
+			findOpts.SetSort(bson.D{{Key: "published_at", Value: -1}})
+		}
+	} else {
+		findOpts.SetSort(bson.D{{Key: "published_at", Value: -1}})
 	}
 	if f.Tag != "" {
 		if id, err := primitive.ObjectIDFromHex(f.Tag); err == nil {
@@ -225,11 +236,26 @@ func (r *Posts) List(ctx context.Context, f repository.PostFilter) ([]model.Post
 	if f.Limit < 1 || f.Limit > 100 {
 		f.Limit = 20
 	}
+	findOpts.SetSkip(int64((f.Page - 1) * f.Limit)).SetLimit(int64(f.Limit))
 	total, e := r.c.CountDocuments(ctx, q)
+	if e != nil && f.Search != "" && q["$text"] != nil {
+		delete(q, "$text")
+		q["$or"] = []bson.M{{"title": bson.M{"$regex": f.Search, "$options": "i"}}, {"excerpt": bson.M{"$regex": f.Search, "$options": "i"}}}
+		findOpts.SetProjection(bson.M{"content": 0, "autosave": 0})
+		findOpts.SetSort(bson.D{{Key: "published_at", Value: -1}})
+		total, e = r.c.CountDocuments(ctx, q)
+	}
 	if e != nil {
 		return nil, 0, e
 	}
-	cur, e := r.c.Find(ctx, q, options.Find().SetProjection(bson.M{"content": 0, "autosave": 0}).SetSort(bson.D{{Key: "published_at", Value: -1}}).SetSkip(int64((f.Page-1)*f.Limit)).SetLimit(int64(f.Limit)))
+	cur, e := r.c.Find(ctx, q, findOpts)
+	if e != nil && f.Search != "" && q["$text"] != nil {
+		delete(q, "$text")
+		q["$or"] = []bson.M{{"title": bson.M{"$regex": f.Search, "$options": "i"}}, {"excerpt": bson.M{"$regex": f.Search, "$options": "i"}}}
+		findOpts.SetProjection(bson.M{"content": 0, "autosave": 0})
+		findOpts.SetSort(bson.D{{Key: "published_at", Value: -1}})
+		cur, e = r.c.Find(ctx, q, findOpts)
+	}
 	if e != nil {
 		return nil, 0, e
 	}

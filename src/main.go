@@ -14,6 +14,7 @@ import (
 	"lumina/src/infrastructure/database/mongodb"
 	"lumina/src/infrastructure/seed"
 	"lumina/src/infrastructure/storage"
+	"lumina/src/infrastructure/worker"
 	"net"
 	"os"
 	"os/signal"
@@ -51,6 +52,10 @@ func main() {
 		objectStorage = cloudinaryStorage
 	}
 	server := api.New(cfg, auth, posts, comments, taxonomies, seriesService, recommendations, objectStorage, repos.Follows, repos.Bookmarks, repos.DB)
+	bgWorker := worker.NewRunner(repos.DB, recommendations)
+	bgWorker.Start(context.Background())
+	defer bgWorker.Stop()
+
 	listener, err := net.Listen("tcp4", ":"+cfg.Port)
 	if err != nil {
 		log.Fatalf("listen on :%s: %v", cfg.Port, err)
@@ -64,6 +69,8 @@ func main() {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	<-stop
-	shutdown, _ := context.WithTimeout(context.Background(), 5*time.Second)
+	bgWorker.Stop()
+	shutdown, cancelShutdown := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelShutdown()
 	_ = server.App.ShutdownWithContext(shutdown)
 }
