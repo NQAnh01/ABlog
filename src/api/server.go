@@ -821,7 +821,7 @@ func (s *Server) myListPosts(c *fiber.Ctx) error {
 	page, _ := strconv.Atoi(c.Query("page", "1"))
 	limit, _ := strconv.Atoi(c.Query("limit", "20"))
 	status := c.Query("status")
-	if status != "" && status != "private" && status != "public" {
+	if status != "" && status != "private" && status != "public" && status != "scheduled" {
 		return fiber.NewError(422, "invalid post status")
 	}
 	filter, err := postFilter(c, status, page, limit)
@@ -1283,6 +1283,10 @@ func (s *Server) adminDashboard(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
+	_, scheduled, err := s.posts.List(ctx, repository.PostFilter{Status: "scheduled", Page: 1, Limit: 1})
+	if err != nil {
+		return err
+	}
 	comments, err := s.comments.Comments.List(ctx)
 	if err != nil {
 		return err
@@ -1295,7 +1299,7 @@ func (s *Server) adminDashboard(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	return success(c, 200, fiber.Map{"posts": total, "published": published, "private": private, "comments": len(comments), "categories": len(categories), "tags": len(tags), "recent_posts": recent})
+	return success(c, 200, fiber.Map{"posts": total, "published": published, "private": private, "scheduled": scheduled, "comments": len(comments), "categories": len(categories), "tags": len(tags), "recent_posts": recent})
 }
 func (s *Server) commentStatus(c *fiber.Ctx) error {
 	id, e := primitive.ObjectIDFromHex(c.Params("id"))
@@ -1438,9 +1442,9 @@ func (s *Server) myBulkPosts(c *fiber.Ctx) error {
 				}
 			}
 		case "publish":
-			if p.Status != "public" {
+			if p.Status != "public" || (p.PublishedAt != nil && p.PublishedAt.After(now)) {
 				p.Status = "public"
-				if p.PublishedAt == nil {
+				if p.PublishedAt == nil || p.PublishedAt.After(now) {
 					p.PublishedAt = &now
 				}
 				p.UpdatedAt = now

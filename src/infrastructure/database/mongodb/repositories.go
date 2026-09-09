@@ -155,7 +155,14 @@ func (r *Posts) FindPublicByIDs(ctx context.Context, ids []primitive.ObjectID) (
 	if len(ids) == 0 {
 		return []model.Post{}, nil
 	}
-	cur, err := r.c.Find(ctx, bson.M{"_id": bson.M{"$in": ids}, "status": bson.M{"$in": []string{"public", "published"}}})
+	now := time.Now().UTC()
+	cur, err := r.c.Find(ctx, bson.M{
+		"_id": bson.M{"$in": ids},
+		"$or": []bson.M{
+			{"status": bson.M{"$in": []string{"public", "published"}}},
+			{"status": "scheduled", "published_at": bson.M{"$lte": now}},
+		},
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -163,7 +170,7 @@ func (r *Posts) FindPublicByIDs(ctx context.Context, ids []primitive.ObjectID) (
 	var posts []model.Post
 	err = cur.All(ctx, &posts)
 	for i := range posts {
-		if posts[i].Status == "published" {
+		if posts[i].Status == "published" || posts[i].Status == "scheduled" {
 			posts[i].Status = "public"
 		}
 	}
@@ -175,9 +182,15 @@ func (r *Posts) List(ctx context.Context, f repository.PostFilter) ([]model.Post
 	if f.Status != "" {
 		switch f.Status {
 		case "public":
-			q["status"] = bson.M{"$in": []string{"public", "published"}}
+			now := time.Now().UTC()
+			q["$or"] = []bson.M{
+				{"status": bson.M{"$in": []string{"public", "published"}}},
+				{"status": "scheduled", "published_at": bson.M{"$lte": now}},
+			}
 		case "private":
 			q["status"] = bson.M{"$in": []string{"private", "draft"}}
+		case "scheduled":
+			q["status"] = "scheduled"
 		default:
 			q["status"] = f.Status
 		}
@@ -262,11 +275,14 @@ func (r *Posts) List(ctx context.Context, f repository.PostFilter) ([]model.Post
 	defer cur.Close(ctx)
 	var v []model.Post
 	e = cur.All(ctx, &v)
+	now := time.Now().UTC()
 	for i := range v {
 		if v[i].Status == "published" {
 			v[i].Status = "public"
 		} else if v[i].Status == "draft" {
 			v[i].Status = "private"
+		} else if v[i].Status == "scheduled" && f.Status == "public" && v[i].PublishedAt != nil && !v[i].PublishedAt.After(now) {
+			v[i].Status = "public"
 		}
 	}
 	return v, total, e

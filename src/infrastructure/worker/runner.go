@@ -66,6 +66,24 @@ func (r *Runner) Start(ctx context.Context) {
 			}
 		}
 	}()
+
+	// Job 3: Scheduled publish runner (every 30 seconds)
+	r.wg.Add(1)
+	go func() {
+		defer r.wg.Done()
+		r.runScheduledPublish(workerCtx)
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-workerCtx.Done():
+				return
+			case <-ticker.C:
+				r.runScheduledPublish(workerCtx)
+			}
+		}
+	}()
 }
 
 func (r *Runner) Stop() {
@@ -104,5 +122,30 @@ func (r *Runner) runCleanup(ctx context.Context) {
 
 	if res, err := r.db.Collection("password_resets").DeleteMany(jobCtx, bson.M{"expires_at": bson.M{"$lt": now}}); err == nil && res.DeletedCount > 0 {
 		log.Printf("[worker] Cleaned up %d expired password resets", res.DeletedCount)
+	}
+}
+
+func (r *Runner) runScheduledPublish(ctx context.Context) {
+	if r.db == nil {
+		return
+	}
+	jobCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	now := time.Now().UTC()
+	res, err := r.db.Collection("posts").UpdateMany(jobCtx,
+		bson.M{
+			"status":       "scheduled",
+			"published_at": bson.M{"$lte": now},
+		},
+		bson.M{
+			"$set": bson.M{
+				"status":     "public",
+				"updated_at": now,
+			},
+		},
+	)
+	if err == nil && res.ModifiedCount > 0 {
+		log.Printf("[worker] Automatically published %d scheduled post(s)", res.ModifiedCount)
 	}
 }

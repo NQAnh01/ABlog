@@ -166,3 +166,26 @@ func TestFeaturesEndpoint(t *testing.T) {
 		t.Fatalf("unexpected feature flags default: %v", data)
 	}
 }
+
+func TestScheduledPostAPI(t *testing.T) {
+	server, _, _, userToken := phase1TestServer(t)
+
+	future := time.Now().UTC().Add(3 * time.Hour)
+	status, _ := jsonRequest(t, server, "POST", "/api/me/posts", userToken, map[string]any{
+		"title": "Scheduled Story", "content": "Scheduled content", "status": "scheduled", "published_at": future, "category_ids": []string{}, "tag_ids": []string{},
+	})
+	if status != 201 {
+		t.Fatalf("create scheduled post failed: status=%d", status)
+	}
+
+	// Filter by scheduled
+	status, listRes := jsonRequest(t, server, "GET", "/api/me/posts?status=scheduled", userToken, nil)
+	if status != 200 {
+		t.Fatalf("get scheduled posts failed: status=%d", status)
+	}
+	data := listRes["data"].(map[string]any)
+	items := data["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("expected 1 scheduled post, got %d", len(items))
+	}
+}

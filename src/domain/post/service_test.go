@@ -132,3 +132,45 @@ func TestVietnameseExcerptUsesCharacterCount(t *testing.T) {
 		t.Fatalf("valid Vietnamese excerpt was rejected: %v", err)
 	}
 }
+
+func TestScheduledPostValidationAndAccess(t *testing.T) {
+	r := &repoFake{items: map[primitive.ObjectID]*model.Post{}}
+	s := Service{Repo: r}
+
+	// 1. Missing PublishedAt must fail
+	p1 := &model.Post{Title: "Scheduled Without Time", Content: "Body", Status: model.PostStatusScheduled}
+	if err := s.Create(context.Background(), p1); err == nil {
+		t.Fatal("scheduled post without published_at should fail")
+	}
+
+	// 2. Past PublishedAt must fail
+	past := time.Now().UTC().Add(-10 * time.Minute)
+	p2 := &model.Post{Title: "Scheduled In Past", Content: "Body", Status: model.PostStatusScheduled, PublishedAt: &past}
+	if err := s.Create(context.Background(), p2); err == nil {
+		t.Fatal("scheduled post with past published_at should fail")
+	}
+
+	// 3. Valid future PublishedAt must succeed
+	future := time.Now().UTC().Add(2 * time.Hour)
+	p3 := &model.Post{Title: "Future Vision", Content: "Future body", Status: model.PostStatusScheduled, PublishedAt: &future}
+	if err := s.Create(context.Background(), p3); err != nil {
+		t.Fatalf("valid scheduled post failed to create: %v", err)
+	}
+
+	// 4. Public Get on future scheduled post must return 404
+	if _, err := s.Get(context.Background(), p3.Slug); err == nil {
+		t.Fatal("future scheduled post must not be accessible via public Get")
+	}
+
+	// 5. Admin Get must return the post
+	if adminPost, err := s.GetAdmin(context.Background(), p3.ID); err != nil || adminPost.ID != p3.ID {
+		t.Fatal("scheduled post must be accessible via GetAdmin")
+	}
+
+	// 6. When published_at arrives, public Get must succeed
+	p3.PublishedAt = &past
+	r.items[p3.ID] = p3
+	if post, err := s.Get(context.Background(), p3.Slug); err != nil || post.ID != p3.ID {
+		t.Fatalf("scheduled post whose time has arrived must be accessible: %v", err)
+	}
+}

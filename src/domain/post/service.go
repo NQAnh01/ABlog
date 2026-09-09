@@ -22,7 +22,17 @@ func (s Service) List(ctx context.Context, f repository.PostFilter) ([]model.Pos
 }
 func (s Service) Get(ctx context.Context, slug string) (*model.Post, error) {
 	p, e := s.Repo.FindBySlug(ctx, slug)
-	if e != nil || (p.Status != "public" && p.Status != "published") {
+	if e != nil {
+		return nil, errors.New("post not found")
+	}
+	if p.Status == model.PostStatusPrivate || p.Status == "draft" {
+		return nil, errors.New("post not found")
+	}
+	if p.Status == model.PostStatusScheduled {
+		if p.PublishedAt == nil || p.PublishedAt.After(time.Now().UTC()) {
+			return nil, errors.New("post not found")
+		}
+	} else if p.Status != model.PostStatusPublic && p.Status != "published" {
 		return nil, errors.New("post not found")
 	}
 	return p, nil
@@ -41,8 +51,11 @@ func (s Service) Create(ctx context.Context, p *model.Post) error {
 	now := time.Now().UTC()
 	p.CreatedAt = now
 	p.UpdatedAt = now
-	if p.Status == "public" && p.PublishedAt == nil {
+	if p.Status == model.PostStatusPublic && p.PublishedAt == nil {
 		p.PublishedAt = &now
+	}
+	if p.Status == model.PostStatusPrivate {
+		p.PublishedAt = nil
 	}
 	if p.IsPinnedOnProfile {
 		if err := s.validateProfilePin(ctx, p.AuthorID, primitive.NilObjectID); err != nil {
@@ -81,8 +94,16 @@ func normalize(p *model.Post) error {
 	if utf8.RuneCountInString(p.Excerpt) > 320 {
 		return errors.New("excerpt must be 320 characters or fewer")
 	}
-	if p.Status != "private" && p.Status != "public" {
+	if p.Status != model.PostStatusPrivate && p.Status != model.PostStatusPublic && p.Status != model.PostStatusScheduled {
 		return errors.New("invalid post status")
+	}
+	if p.Status == model.PostStatusScheduled {
+		if p.PublishedAt == nil {
+			return errors.New("scheduled post requires a future publish date")
+		}
+		if p.PublishedAt.Before(time.Now().UTC().Add(-1 * time.Minute)) {
+			return errors.New("scheduled publish date must be in the future")
+		}
 	}
 	return nil
 }
@@ -115,11 +136,14 @@ func (s Service) Update(ctx context.Context, id primitive.ObjectID, input *model
 	p.CategoryIDs = input.CategoryIDs
 	p.TagIDs = input.TagIDs
 	p.UpdatedAt = time.Now().UTC()
-	if p.Status == "public" && p.PublishedAt == nil {
+	if p.Status == model.PostStatusPublic && (p.PublishedAt == nil || p.PublishedAt.After(p.UpdatedAt)) {
 		p.PublishedAt = &p.UpdatedAt
 	}
-	if p.Status == "private" {
+	if p.Status == model.PostStatusPrivate {
 		p.PublishedAt = nil
+	}
+	if p.Status == model.PostStatusScheduled {
+		p.PublishedAt = input.PublishedAt
 	}
 	return s.Repo.Update(ctx, p)
 }

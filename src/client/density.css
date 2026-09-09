@@ -1295,3 +1295,105 @@ code.meta-val { font-family: monospace; font-size: 12px; background: color-mix(i
   gap: 8px;
 }
 
+/* Scheduled Publish Styles */
+.status-dot.scheduled {
+  background: #38bdf8;
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.2);
+}
+
+.profile-summary i.scheduled {
+  background: #38bdf8;
+  box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.15);
+}
+
+.donut-legend i.scheduled {
+  background: #38bdf8;
+}
+
+.profile-status.scheduled {
+  background: color-mix(in srgb, #38bdf8 14%, transparent);
+  color: #0284c7;
+  border: 1px solid color-mix(in srgb, #38bdf8 30%, transparent);
+}
+
+.theme-dark .profile-status.scheduled {
+  background: rgba(56, 189, 248, 0.12);
+  color: #38bdf8;
+  border-color: rgba(56, 189, 248, 0.25);
+}
+
+.story-visibility-cell {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.scheduled-pill {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, #38bdf8 15%, transparent);
+  color: #0284c7;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.theme-dark .scheduled-pill {
+  background: rgba(56, 189, 248, 0.15);
+  color: #7dd3fc;
+}
+
+/* Schedule Picker in Sidebar */
+.schedule-picker {
+  margin-top: 14px;
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, #38bdf8 25%, var(--line));
+  background: color-mix(in srgb, #38bdf8 6%, var(--card));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: fadeIn 0.25s ease;
+}
+
+.schedule-picker label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.schedule-picker-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.schedule-datetime-input {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.schedule-datetime-input:focus {
+  border-color: #38bdf8;
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.2);
+}
+
+.schedule-picker small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+

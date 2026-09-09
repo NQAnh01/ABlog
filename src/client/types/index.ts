@@ -11,9 +11,9 @@ export type Tag = { id: string; name: string; slug: string }
 export type Post = {
   id: string; title: string; slug: string; excerpt: string; content: string; thumbnail?: Media;
   author_id?: string; category_ids?: string[]; tag_ids?: string[]; author?: PublicUser; categories?: Category[]; tags?: Tag[];
-  status: 'private' | 'public'; is_featured?: boolean; is_pinned_on_profile?:boolean; reactions?: Reaction[]; published_at?: string; created_at?: string; updated_at?: string;
+  status: 'private' | 'public' | 'scheduled'; is_featured?: boolean; is_pinned_on_profile?:boolean; reactions?: Reaction[]; published_at?: string; created_at?: string; updated_at?: string;
 }
-export type PostInput = Pick<Post, 'title' | 'slug' | 'excerpt' | 'content' | 'status'> & {
+export type PostInput = Pick<Post, 'title' | 'slug' | 'excerpt' | 'content' | 'status' | 'published_at'> & {
   thumbnail?: Media; category_ids: string[]; tag_ids: string[]; is_featured?: boolean; is_pinned_on_profile?:boolean
 }
 export type ReactionType = 'insightful' | 'beautiful' | 'useful'
@@ -23,7 +23,7 @@ export type Page<T> = { items: T[]; page: number; limit: number; total: number }
 export type PostVersion = { id: string; post_id: string; number: number; snapshot: Post; created_at: string }
 export type PostDraft = PostInput & { sequence: number; updated_at: string }
 export type PostDraftResponse = { draft: PostDraft; newer: boolean }
-export type Dashboard = { posts: number; published: number; private: number; comments: number; categories: number; tags: number; recent_posts: Post[] }
+export type Dashboard = { posts: number; published: number; private: number; scheduled?: number; comments: number; categories: number; tags: number; recent_posts: Post[] }
 export type AdminPasswordReset = { id:string; user:User; created_at:string; expires_at:string }
 export type Series = { id:string;title:string;slug:string;description:string;cover_image?:Media;author_id:string;author?:PublicUser;status:'draft'|'published';is_featured?:boolean;created_at:string;updated_at?:string;posts?:Post[] }
 export type SeriesInput = Pick<Series,'title'|'description'|'cover_image'|'status'|'is_featured'>
