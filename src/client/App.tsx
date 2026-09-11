@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect } from 'react'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { seoDefaults,useSeo } from './components/Seo'
+import { useI18n } from './i18n'
 
 const LoginPage=lazy(()=>import('./pages/AuthPages').then(module=>({default:module.LoginPage})))
 const RegisterPage=lazy(()=>import('./pages/AuthPages').then(module=>({default:module.RegisterPage})))
@@ -29,25 +30,26 @@ const TodoPage=lazy(()=>import('./pages/TodoPage').then(module=>({default:module
 const DiscussionsPage=lazy(()=>import('./pages/DiscussionPages').then(module=>({default:module.DiscussionsPage})))
 const DiscussionPage=lazy(()=>import('./pages/DiscussionPages').then(module=>({default:module.DiscussionPage})))
 
-function RouteFallback(){return <div className="route-loading" role="status" aria-live="polite"><span className="spinner"/><span>Loading page…</span></div>}
+function RouteFallback(){const{t}=useI18n();return <div className="route-loading" role="status" aria-live="polite"><span className="spinner"/><span>{t('common.loadingPage','Loading page…')}</span></div>}
 
 export default function App() {
+  const { t } = useI18n()
   const location = useLocation()
 
   const routeSeo:Record<string,{title:string;description:string;noIndex?:boolean}>={
-    '/':{title:'',description:seoDefaults.description},
-    '/blog':{title:'Explore stories',description:'Discover thoughtful stories, useful ideas, and fresh perspectives from independent writers on Lumina.'},
-    '/search':{title:'Search stories',description:'Search stories, topics, and ideas published on Lumina.',noIndex:true},
-    '/about':{title:'About',description:'Learn about Lumina, a thoughtful publishing community for independent writers and curious readers.'},
-    '/privacy':{title:'Privacy policy',description:'Read how Lumina handles account information, published content, and reader privacy.'},
+    '/':{title:'',description:t('seo.description',seoDefaults.description)},
+    '/blog':{title:t('seo.explore','Explore stories'),description:t('seo.description','Discover thoughtful stories, useful ideas, and fresh perspectives from independent writers on Lumina.')},
+    '/search':{title:t('seo.search','Search stories'),description:t('seo.description','Search stories, topics, and ideas published on Lumina.'),noIndex:true},
+    '/about':{title:t('seo.about','About'),description:t('seo.description','Learn about Lumina, a thoughtful publishing community for independent writers and curious readers.')},
+    '/privacy':{title:t('seo.privacy','Privacy policy'),description:t('seo.description','Read how Lumina handles account information, published content, and reader privacy.')},
     '/socials':{title:'Connect with Lumina',description:'Find Lumina across the web and stay connected with our writing community.'},
-    '/discussions':{title:'Community discussions',description:'Join thoughtful conversations, ask questions, and exchange ideas with the Lumina community.'},
-    '/login':{title:'Sign in',description:'Sign in to your Lumina account.',noIndex:true},
-    '/register':{title:'Create account',description:'Create your Lumina writing and reading account.',noIndex:true},
+    '/discussions':{title:t('seo.discussions','Community discussions'),description:t('seo.description','Join thoughtful conversations, ask questions, and exchange ideas with the Lumina community.')},
+    '/login':{title:t('seo.login','Sign in'),description:t('seo.description','Sign in to your Lumina account.'),noIndex:true},
+    '/register':{title:t('seo.register','Create account'),description:t('seo.description','Create your Lumina writing and reading account.'),noIndex:true},
     '/forgot-password':{title:'Reset password',description:'Request a password reset for your Lumina account.',noIndex:true},
     '/reset-password':{title:'Choose a new password',description:'Choose a new password for your Lumina account.',noIndex:true},
     '/profile':{title:'My stories',description:'Manage your Lumina stories.',noIndex:true},
-    '/profile/settings':{title:'Account settings',description:'Manage your Lumina account and public author profile.',noIndex:true},
+    '/profile/settings':{title:t('seo.settings','Account settings'),description:t('seo.description','Manage your Lumina account and public author profile.'),noIndex:true},
     '/saved':{title:'Reading list',description:'Your private Lumina reading list.',noIndex:true},
     '/todos':{title:'Targets and todos',description:'Your private targets and todo lists.',noIndex:true},
     '/offline':{title:'Offline library',description:'Stories saved for offline reading.',noIndex:true},
@@ -59,7 +61,7 @@ export default function App() {
     '/admin/series':{title:'Series studio',description:'Manage Lumina story series.',noIndex:true},
   }
   const privateRoute=/^\/(admin|profile|saved|todos|stories)(\/|$)/.test(location.pathname)||['/forgot-password','/reset-password','/offline'].includes(location.pathname)
-  const fallback=location.pathname.startsWith('/categories/')?{title:'Stories by category',description:'Browse stories in this category on Lumina.'}:location.pathname.startsWith('/tags/')?{title:'Tagged stories',description:'Browse stories with this tag on Lumina.'}:location.pathname.startsWith('/series/')?{title:'Story series',description:'Read a curated story series on Lumina.'}:location.pathname.startsWith('/author/')?{title:'Lumina author',description:'Read stories from an independent writer on Lumina.'}:location.pathname.startsWith('/blog/')?{title:'Lumina story',description:seoDefaults.description}:location.pathname.startsWith('/discussions/')?{title:'Community discussion',description:'Read and join this discussion on Lumina.'}:{title:'Page not found',description:'The requested page could not be found on Lumina.',noIndex:true}
+  const fallback=location.pathname.startsWith('/categories/')?{title:'Stories by category',description:t('seo.description','Browse stories in this category on Lumina.')}:location.pathname.startsWith('/tags/')?{title:'Tagged stories',description:t('seo.description','Browse stories with this tag on Lumina.')}:location.pathname.startsWith('/series/')?{title:'Story series',description:t('seo.description','Read a curated story series on Lumina.')}:location.pathname.startsWith('/author/')?{title:'Lumina author',description:t('seo.description','Read stories from an independent writer on Lumina.')}:location.pathname.startsWith('/blog/')?{title:'Lumina story',description:t('seo.description',seoDefaults.description)}:location.pathname.startsWith('/discussions/')?{title:t('seo.discussions','Community discussion'),description:t('seo.description','Read and join this discussion on Lumina.')}:{title:t('seo.notFound','Page not found'),description:t('seo.description','The requested page could not be found on Lumina.'),noIndex:true}
   const current=routeSeo[location.pathname]??fallback
   useSeo({...current,path:location.pathname,noIndex:privateRoute||current.noIndex||location.pathname==='/search',jsonLd:location.pathname==='/'?[{'@context':'https://schema.org','@type':'WebSite',name:'Lumina',url:window.location.origin,potentialAction:{'@type':'SearchAction',target:`${window.location.origin}/search?q={search_term_string}`,'query-input':'required name=search_term_string'}},{'@context':'https://schema.org','@type':'Organization',name:'Lumina',url:window.location.origin,logo:`${window.location.origin}/icons/icon-512.png`}]:undefined})
 

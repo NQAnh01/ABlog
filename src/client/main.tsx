@@ -7,6 +7,7 @@ import { ToastProvider } from './hooks/useToast'
 import { BookmarkProvider } from './hooks/useBookmarks'
 import { PWAProvider } from './hooks/usePWA'
 import { ConfirmModal } from './components/ConfirmModal'
+import { I18nProvider } from './i18n'
 import { previewFont, savedFont } from './font'
 import './styles.css'
 import './inline-taxonomy.css'
@@ -34,5 +35,6 @@ import './productivity.css'
 import './discussion-editor.css'
 import './productivity-themes.css'
 import './form-controls.css'
+import './i18n.css'
 previewFont(savedFont())
-ReactDOM.createRoot(document.getElementById('root')!).render(<React.StrictMode><BrowserRouter><ToastProvider><PWAProvider><AuthProvider><BookmarkProvider><App/><ConfirmModal/></BookmarkProvider></AuthProvider></PWAProvider></ToastProvider></BrowserRouter></React.StrictMode>)
+ReactDOM.createRoot(document.getElementById('root')!).render(<React.StrictMode><I18nProvider><BrowserRouter><ToastProvider><PWAProvider><AuthProvider><BookmarkProvider><App/><ConfirmModal/></BookmarkProvider></AuthProvider></PWAProvider></ToastProvider></BrowserRouter></I18nProvider></React.StrictMode>)

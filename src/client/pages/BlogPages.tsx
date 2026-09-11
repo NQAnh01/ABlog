@@ -1,70 +1,728 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
-import { BlogCard } from '../components/BlogCard'
-import { MarkdownView, PreviewableImage } from '../components/MarkdownEditor'
-import { EmptyState, ErrorState, Layout, Loading, Pagination, StoryGridSkeleton } from '../components/ui'
-import { api } from '../services/api'
-import { useAuth } from '../hooks/useAuth'
-import type { Category, Comment, Post, Tag } from '../types'
-import { ThreadedComments } from '../components/ThreadedComments'
-import { SelectionQuote } from '../components/SelectionQuote'
-import { recentPostIds,rememberPost } from '../recent-reading'
-import { ViewToggle } from '../components/ViewToggle'
-import { AppSelect as FilterSelect } from '../components/AppSelect'
-import { seoDefaults,useSeo } from '../components/Seo'
-import { SocialShareBar, StoryBookmarkButton, ArticleShareSection } from '../components/SocialShare'
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { Link, Navigate, useParams, useSearchParams } from "react-router-dom";
+import { BlogCard } from "../components/BlogCard";
+import { MarkdownView, PreviewableImage } from "../components/MarkdownEditor";
+import {
+  EmptyState,
+  ErrorState,
+  Layout,
+  Loading,
+  Pagination,
+  StoryGridSkeleton,
+} from "../components/ui";
+import { api } from "../services/api";
+import { useAuth } from "../hooks/useAuth";
+import type { Category, Comment, Post, Tag } from "../types";
+import { ThreadedComments } from "../components/ThreadedComments";
+import { SelectionQuote } from "../components/SelectionQuote";
+import { recentPostIds, rememberPost } from "../recent-reading";
+import { ViewToggle } from "../components/ViewToggle";
+import { AppSelect as FilterSelect } from "../components/AppSelect";
+import { seoDefaults, useSeo } from "../components/Seo";
+import {
+  SocialShareBar,
+  StoryBookmarkButton,
+  ArticleShareSection,
+} from "../components/SocialShare";
+import { useI18n } from "../i18n";
 
-export function BlogListPage({ title = 'Explore Stories' }: { title?: string }) {
- const {user}=useAuth();const preferenceApplied=useRef(false)
- const {slug}=useParams(); const routeKind=window.location.pathname.startsWith('/tags/')?'tag':window.location.pathname.startsWith('/categories/')?'category':''; const [query,setQuery]=useSearchParams(); const [posts,setPosts]=useState<Post[]>([]);const[tags,setTags]=useState<Tag[]>([]);const[categories,setCategories]=useState<Category[]>([]);const[routeFilter,setRouteFilter]=useState({id:'',name:''});const[total,setTotal]=useState(0);const[loading,setLoading]=useState(true);const[error,setError]=useState('');const[filterOpen,setFilterOpen]=useState(false);const filterMenu=useRef<HTMLDivElement>(null);const term=query.get('q')??'';const from=query.get('from')??'';const to=query.get('to')??'';const tag=routeKind==='tag'?routeFilter.id:query.get('tag')??'';const category=routeKind==='category'?routeFilter.id:query.get('category')??'';const page=Math.max(1,Number(query.get('page'))||1)
- useEffect(()=>{Promise.all([api.tags(),api.categories()]).then(([tagData,categoryData])=>{setTags(tagData);setCategories(categoryData)}).catch(()=>null)},[])
- useEffect(()=>{let active=true;if(!slug||!routeKind){setRouteFilter({id:'',name:''});return()=>{active=false}}setRouteFilter({id:'',name:''});setLoading(true);setError('');const request=routeKind==='tag'?api.tag(slug):api.category(slug);request.then(value=>{if(active)setRouteFilter({id:value.id,name:routeKind==='tag'?`#${value.name}`:value.name})}).catch(err=>{if(active){setError(err instanceof Error?err.message:'Topic not found');setLoading(false)}});return()=>{active=false}},[slug,routeKind])
- useEffect(()=>{if(!filterOpen)return;function closeOnOutside(event:MouseEvent){if(!filterMenu.current?.contains(event.target as Node))setFilterOpen(false)}function closeOnEscape(event:KeyboardEvent){if(event.key==='Escape')setFilterOpen(false)}document.addEventListener('mousedown',closeOnOutside);document.addEventListener('keydown',closeOnEscape);return()=>{document.removeEventListener('mousedown',closeOnOutside);document.removeEventListener('keydown',closeOnEscape)}},[filterOpen])
- useEffect(()=>{let active=true;if(slug&&routeKind&&!routeFilter.id)return()=>{active=false};const search=new URLSearchParams({page:String(page)});if(term)search.set('q',term);if(from)search.set('from',from);if(to)search.set('to',to);if(tag)search.set('tag',tag);if(category)search.set('category',category);setLoading(true);setError('');api.posts(`?${search}`).then(result=>{if(active){setPosts(result.items??[]);setTotal(result.total)}}).catch(err=>{if(active)setError(err instanceof Error?err.message:'Unable to load stories')}).finally(()=>{if(active)setLoading(false)});return()=>{active=false}},[term,from,to,tag,category,page,slug,routeKind,routeFilter.id])
- function filter(event:FormEvent<HTMLFormElement>){event.preventDefault();const data=new FormData(event.currentTarget);const next=new URLSearchParams();for(const key of ['q','from','to','tag','category']){const value=String(data.get(key)??'').trim();if(value)next.set(key,value)}setFilterOpen(false);setQuery(next)}
- useEffect(()=>{if(preferenceApplied.current||routeKind||query.toString()||!user?.interest_category_ids?.length)return;preferenceApplied.current=true;setQuery({category:user.interest_category_ids.join(',')},{replace:true})},[user,routeKind,query,setQuery])
- const hasClearableFilters=Boolean(term||from||to||(routeKind!=='tag'&&tag)||(routeKind!=='category'&&category))
- const pageTitle=routeFilter.name||title
- useSeo({title:pageTitle,description:routeKind&&routeFilter.name?`Read the latest Lumina stories ${routeKind==='tag'?`tagged ${routeFilter.name}`:`in ${routeFilter.name}`}.`:'Discover thoughtful stories, useful ideas, and fresh perspectives from independent writers on Lumina.',path:window.location.pathname,noIndex:window.location.pathname==='/search'||Boolean(term||from||to),jsonLd:routeKind&&routeFilter.name?{'@context':'https://schema.org','@type':'CollectionPage',name:pageTitle,url:window.location.origin+window.location.pathname,description:`Lumina stories ${routeKind==='tag'?`tagged ${routeFilter.name}`:`in ${routeFilter.name}`}.`}:undefined})
- return <Layout dark><section className="listing container"><header className="listing-head"><div className="listing-intro"><span className="eyebrow">CURATED READING</span><h1>{routeFilter.name||title}</h1><p>Ideas, perspectives, and quiet observations for thoughtful minds.</p></div><form className="story-search" role="search" onSubmit={filter}><div className="search-card-heading"><div><i aria-hidden="true"/><span>DISCOVER STORIES</span></div><small>Find ideas worth your time</small></div><div className="search-primary"><span className="search-input"><i aria-hidden="true">⌕</i><input type="search" name="q" defaultValue={term} autoComplete="off" aria-label="Search stories" placeholder="Search by title, topic, or idea…"/><kbd>Enter</kbd></span><div className={`advanced-filter-menu${filterOpen?' open':''}`} ref={filterMenu}><button type="button" className="advanced-toggle" aria-label="Advanced filters" aria-expanded={filterOpen} aria-controls="advanced-filter-panel" onClick={()=>setFilterOpen(value=>!value)}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10M14 4v6M6 14v6"/></svg></button><span className="filter-tooltip" role="tooltip">Advanced filters</span><div className="advanced-panel" id="advanced-filter-panel" aria-hidden={!filterOpen}><header><div><strong>Advanced filters</strong><small>Narrow down the stories</small></div><div className="filter-panel-actions">{hasClearableFilters&&<button type="button" className="filter-clear" onClick={()=>setQuery({})}>Reset</button>}<button type="button" className="filter-close" aria-label="Close advanced filters" onClick={()=>setFilterOpen(false)}>×</button></div></header><div className="advanced-fields"><label className="filter-field"><span>From date</span><span className="filter-control"><input type="date" name="from" defaultValue={from}/></span></label><label className="filter-field"><span>To date</span><span className="filter-control"><input type="date" name="to" defaultValue={to}/></span></label><label className="filter-field"><span>Tag</span><span className="filter-control filter-control-select"><FilterSelect name="tag" initialValue={tag} label="Filter by tag" options={[{value:'',label:'All tags'},...tags.map(item=>({value:item.id,label:`#${item.name}`}))]}/></span></label><label className="filter-field"><span>Type</span><span className="filter-control filter-control-select"><FilterSelect name="category" initialValue={category} label="Filter by category" options={[{value:'',label:'All categories'},...categories.map(item=>({value:item.id,label:item.name}))]}/></span></label></div><button className="apply-filters">Apply filters</button></div></div></div><div className="search-quick-tags"><span>Explore</span>{tags.slice(0,3).map(item=>{const active=tag===item.id;return <button type="button" className={active?'active':''} aria-pressed={active} key={item.id} onClick={()=>{const next=new URLSearchParams(query);active?next.delete('tag'):next.set('tag',item.id);next.delete('page');setQuery(next)}}>#{item.name}</button>})}</div></form></header>{error?<ErrorState message={error}/>:<><div className="results-bar" aria-live="polite"><span>{loading?'Refreshing stories…':`${total} ${total===1?'story':'stories'} found`}</span><ViewToggle targetId="blog-stories-view" storageKey="blog-stories"/>{hasClearableFilters&&<button type="button" onClick={()=>setQuery({})}>Clear filters ×</button>}</div>{loading&&!posts.length?<StoryGridSkeleton/>:<div id="blog-stories-view" className={`post-grid${loading?' refreshing':''}`} aria-busy={loading}>{posts.map(p=><BlogCard key={p.id} post={p}/>)}</div>}{!loading&&!posts.length&&<EmptyState title="No stories found" text="Try changing the date range, tag, or search phrase."/>}<Pagination page={page} total={total} onPage={next=>{const value=new URLSearchParams(query);next>1?value.set('page',String(next)):value.delete('page');setQuery(value)}}/></>}</section></Layout>
+export function BlogListPage({
+  title = "Explore Stories",
+}: {
+  title?: string;
+}) {
+  const { user } = useAuth();
+  const preferenceApplied = useRef(false);
+  const { slug } = useParams();
+  const routeKind = window.location.pathname.startsWith("/tags/")
+    ? "tag"
+    : window.location.pathname.startsWith("/categories/")
+      ? "category"
+      : "";
+  const [query, setQuery] = useSearchParams();
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [tags, setTags] = useState<Tag[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [routeFilter, setRouteFilter] = useState({ id: "", name: "" });
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [filterOpen, setFilterOpen] = useState(false);
+  const filterMenu = useRef<HTMLDivElement>(null);
+  const term = query.get("q") ?? "";
+  const from = query.get("from") ?? "";
+  const to = query.get("to") ?? "";
+  const tag = routeKind === "tag" ? routeFilter.id : (query.get("tag") ?? "");
+  const category =
+    routeKind === "category" ? routeFilter.id : (query.get("category") ?? "");
+  const page = Math.max(1, Number(query.get("page")) || 1);
+  useEffect(() => {
+    Promise.all([api.tags(), api.categories()])
+      .then(([tagData, categoryData]) => {
+        setTags(tagData);
+        setCategories(categoryData);
+      })
+      .catch(() => null);
+  }, []);
+  useEffect(() => {
+    let active = true;
+    if (!slug || !routeKind) {
+      setRouteFilter({ id: "", name: "" });
+      return () => {
+        active = false;
+      };
+    }
+    setRouteFilter({ id: "", name: "" });
+    setLoading(true);
+    setError("");
+    const request = routeKind === "tag" ? api.tag(slug) : api.category(slug);
+    request
+      .then((value) => {
+        if (active)
+          setRouteFilter({
+            id: value.id,
+            name: routeKind === "tag" ? `#${value.name}` : value.name,
+          });
+      })
+      .catch((err) => {
+        if (active) {
+          setError(err instanceof Error ? err.message : "Topic not found");
+          setLoading(false);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [slug, routeKind]);
+  useEffect(() => {
+    if (!filterOpen) return;
+    function closeOnOutside(event: MouseEvent) {
+      if (!filterMenu.current?.contains(event.target as Node))
+        setFilterOpen(false);
+    }
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setFilterOpen(false);
+    }
+    document.addEventListener("mousedown", closeOnOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", closeOnOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [filterOpen]);
+  useEffect(() => {
+    let active = true;
+    if (slug && routeKind && !routeFilter.id)
+      return () => {
+        active = false;
+      };
+    const search = new URLSearchParams({ page: String(page) });
+    if (term) search.set("q", term);
+    if (from) search.set("from", from);
+    if (to) search.set("to", to);
+    if (tag) search.set("tag", tag);
+    if (category) search.set("category", category);
+    setLoading(true);
+    setError("");
+    api
+      .posts(`?${search}`)
+      .then((result) => {
+        if (active) {
+          setPosts(result.items ?? []);
+          setTotal(result.total);
+        }
+      })
+      .catch((err) => {
+        if (active)
+          setError(
+            err instanceof Error ? err.message : "Unable to load stories",
+          );
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [term, from, to, tag, category, page, slug, routeKind, routeFilter.id]);
+  function filter(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const next = new URLSearchParams();
+    for (const key of ["q", "from", "to", "tag", "category"]) {
+      const value = String(data.get(key) ?? "").trim();
+      if (value) next.set(key, value);
+    }
+    setFilterOpen(false);
+    setQuery(next);
+  }
+  useEffect(() => {
+    if (
+      preferenceApplied.current ||
+      routeKind ||
+      query.toString() ||
+      !user?.interest_category_ids?.length
+    )
+      return;
+    preferenceApplied.current = true;
+    setQuery(
+      { category: user.interest_category_ids.join(",") },
+      { replace: true },
+    );
+  }, [user, routeKind, query, setQuery]);
+  const hasClearableFilters = Boolean(
+    term ||
+      from ||
+      to ||
+      (routeKind !== "tag" && tag) ||
+      (routeKind !== "category" && category),
+  );
+  const pageTitle = routeFilter.name || title;
+  useSeo({
+    title: pageTitle,
+    description:
+      routeKind && routeFilter.name
+        ? `Read the latest Lumina stories ${routeKind === "tag" ? `tagged ${routeFilter.name}` : `in ${routeFilter.name}`}.`
+        : "Discover thoughtful stories, useful ideas, and fresh perspectives from independent writers on Lumina.",
+    path: window.location.pathname,
+    noIndex:
+      window.location.pathname === "/search" || Boolean(term || from || to),
+    jsonLd:
+      routeKind && routeFilter.name
+        ? {
+            "@context": "https://schema.org",
+            "@type": "CollectionPage",
+            name: pageTitle,
+            url: window.location.origin + window.location.pathname,
+            description: `Lumina stories ${routeKind === "tag" ? `tagged ${routeFilter.name}` : `in ${routeFilter.name}`}.`,
+          }
+        : undefined,
+  });
+  return (
+    <Layout dark>
+      <section className="listing container">
+        <header className="listing-head">
+          <div className="listing-intro">
+            <span className="eyebrow">CURATED READING</span>
+            <h1>{routeFilter.name || title}</h1>
+            <p>
+              Ideas, perspectives, and quiet observations for thoughtful minds.
+            </p>
+          </div>
+          <form className="story-search" role="search" onSubmit={filter}>
+            <div className="search-card-heading">
+              <div>
+                <i aria-hidden="true" />
+                <span>DISCOVER STORIES</span>
+              </div>
+              <small>Find ideas worth your time</small>
+            </div>
+            <div className="search-primary">
+              <span className="search-input">
+                <i aria-hidden="true">⌕</i>
+                <input
+                  type="search"
+                  name="q"
+                  defaultValue={term}
+                  autoComplete="off"
+                  aria-label="Search stories"
+                  placeholder="Search by title, topic, or idea…"
+                />
+                <kbd>Enter</kbd>
+              </span>
+              <div
+                className={`advanced-filter-menu${filterOpen ? " open" : ""}`}
+                ref={filterMenu}
+              >
+                <button
+                  type="button"
+                  className="advanced-toggle"
+                  aria-label="Advanced filters"
+                  aria-expanded={filterOpen}
+                  aria-controls="advanced-filter-panel"
+                  onClick={() => setFilterOpen((value) => !value)}
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M4 7h10M18 7h2M4 17h2M10 17h10M14 4v6M6 14v6" />
+                  </svg>
+                </button>
+                <span className="filter-tooltip" role="tooltip">
+                  Advanced filters
+                </span>
+                <div
+                  className="advanced-panel"
+                  id="advanced-filter-panel"
+                  aria-hidden={!filterOpen}
+                >
+                  <header>
+                    <div>
+                      <strong>Advanced filters</strong>
+                      <small>Narrow down the stories</small>
+                    </div>
+                    <div className="filter-panel-actions">
+                      {hasClearableFilters && (
+                        <button
+                          type="button"
+                          className="filter-clear"
+                          onClick={() => setQuery({})}
+                        >
+                          Reset
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="filter-close"
+                        aria-label="Close advanced filters"
+                        onClick={() => setFilterOpen(false)}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  </header>
+                  <div className="advanced-fields">
+                    <label className="filter-field">
+                      <span>From date</span>
+                      <span className="filter-control">
+                        <input type="date" name="from" defaultValue={from} />
+                      </span>
+                    </label>
+                    <label className="filter-field">
+                      <span>To date</span>
+                      <span className="filter-control">
+                        <input type="date" name="to" defaultValue={to} />
+                      </span>
+                    </label>
+                    <label className="filter-field">
+                      <span>Tag</span>
+                      <span className="filter-control filter-control-select">
+                        <FilterSelect
+                          name="tag"
+                          initialValue={tag}
+                          label="Filter by tag"
+                          options={[
+                            { value: "", label: "All tags" },
+                            ...tags.map((item) => ({
+                              value: item.id,
+                              label: `#${item.name}`,
+                            })),
+                          ]}
+                        />
+                      </span>
+                    </label>
+                    <label className="filter-field">
+                      <span>Type</span>
+                      <span className="filter-control filter-control-select">
+                        <FilterSelect
+                          name="category"
+                          initialValue={category}
+                          label="Filter by category"
+                          options={[
+                            { value: "", label: "All categories" },
+                            ...categories.map((item) => ({
+                              value: item.id,
+                              label: item.name,
+                            })),
+                          ]}
+                        />
+                      </span>
+                    </label>
+                  </div>
+                  <button className="apply-filters">Apply filters</button>
+                </div>
+              </div>
+            </div>
+            <div className="search-quick-tags">
+              <span>Explore</span>
+              {tags.slice(0, 3).map((item) => {
+                const active = tag === item.id;
+                return (
+                  <button
+                    type="button"
+                    className={active ? "active" : ""}
+                    aria-pressed={active}
+                    key={item.id}
+                    onClick={() => {
+                      const next = new URLSearchParams(query);
+                      active ? next.delete("tag") : next.set("tag", item.id);
+                      next.delete("page");
+                      setQuery(next);
+                    }}
+                  >
+                    #{item.name}
+                  </button>
+                );
+              })}
+            </div>
+          </form>
+        </header>
+        {error ? (
+          <ErrorState message={error} />
+        ) : (
+          <>
+            <div className="results-bar" aria-live="polite">
+              <span>
+                {loading
+                  ? "Refreshing stories…"
+                  : `${total} ${total === 1 ? "story" : "stories"} found`}
+              </span>
+              <ViewToggle
+                targetId="blog-stories-view"
+                storageKey="blog-stories"
+              />
+              {hasClearableFilters && (
+                <button type="button" onClick={() => setQuery({})}>
+                  Clear filters ×
+                </button>
+              )}
+            </div>
+            {loading && !posts.length ? (
+              <StoryGridSkeleton />
+            ) : (
+              <div
+                id="blog-stories-view"
+                className={`post-grid${loading ? " refreshing" : ""}`}
+                aria-busy={loading}
+              >
+                {posts.map((p) => (
+                  <BlogCard key={p.id} post={p} />
+                ))}
+              </div>
+            )}
+            {!loading && !posts.length && (
+              <EmptyState
+                title="No stories found"
+                text="Try changing the date range, tag, or search phrase."
+              />
+            )}
+            <Pagination
+              page={page}
+              total={total}
+              onPage={(next) => {
+                const value = new URLSearchParams(query);
+                next > 1
+                  ? value.set("page", String(next))
+                  : value.delete("page");
+                setQuery(value);
+              }}
+            />
+          </>
+        )}
+      </section>
+    </Layout>
+  );
 }
 export function ArticlePage() {
- const {slug=''}=useParams(); const {user}=useAuth(); const [post,setPost]=useState<Post|null>(null); const [comments,setComments]=useState<Comment[]>([]); const [related,setRelated]=useState<Post[]>([]); const [loading,setLoading]=useState(true);const[error,setError]=useState('')
- useEffect(()=>{Promise.all([api.post(slug),api.comments(slug)]).then(([p,c])=>{setPost(p);setComments(c??[])}).catch(err=>setError(err instanceof Error?err.message:'Story not found')).finally(()=>setLoading(false))},[slug])
- useEffect(()=>{if(!post)return;const recent=recentPostIds();rememberPost(post.id);api.recommendations(post.slug,recent).then(setRelated).catch(()=>setRelated([]))},[post])
- const articleUrl=`/blog/${slug}`
- useSeo({title:post?.title??'Lumina story',description:post?.excerpt||seoDefaults.description,path:articleUrl,image:post?.thumbnail?.url,type:'article',noIndex:Boolean(error),jsonLd:post?{'@context':'https://schema.org','@type':'BlogPosting',headline:post.title,description:post.excerpt,image:post.thumbnail?.url?new URL(post.thumbnail.url,window.location.origin).href:undefined,datePublished:post.published_at,dateModified:post.updated_at??post.published_at,author:{'@type':'Person',name:post.author?.name??'Lumina Author',url:post.author?.username?`${window.location.origin}/author/${post.author.username}`:undefined},publisher:{'@type':'Organization',name:'Lumina',logo:{'@type':'ImageObject',url:`${window.location.origin}/icons/icon-512.png`}},mainEntityOfPage:`${window.location.origin}${articleUrl}`,keywords:post.tags?.map(tag=>tag.name).join(', ')||undefined}:undefined})
-  if(loading)return <Layout dark><Loading/></Layout>; if(error||!post)return <Layout dark><ErrorState message={error||"Story not found"}/></Layout>
-  const canEdit=user&&(user.role==='admin'||user.id===post.author_id)
-  return <Layout dark><article className="article">{canEdit&&<nav className="author-story-actions" aria-label="Story management"><Link className="story-action-icon" to={`/admin/posts/${post.id}/edit`} aria-label="Edit story"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4l11-11a2.8 2.8 0 0 0-4-4L4 16v4Z"/><path d="m13.5 6.5 4 4"/></svg><span role="tooltip">Edit story</span></Link><Link className="story-action-icon" to={`/admin/posts/${post.id}/versions`} aria-label="Version history"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></svg><span role="tooltip">Version history</span></Link></nav>}<header><span className="eyebrow">LUMINA JOURNAL</span><h1>{post.title}</h1><p className="dek">{post.excerpt}</p><div className="article-meta-bar"><div className="author-line"><span className="avatar">{post.author?.name?.[0]??'L'}</span><div><strong>{post.author?.username?<Link to={`/author/${post.author.username}`}>{post.author.name}</Link>:post.author?.name??'Lumina Author'}</strong><time dateTime={post.published_at}>{post.published_at?new Date(post.published_at).toLocaleDateString():''}</time></div></div><div className="article-meta-actions"><StoryBookmarkButton postId={post.id}/><SocialShareBar post={post}/></div></div></header>{post.thumbnail&&<PreviewableImage className="article-hero" src={post.thumbnail.url} alt={post.title}/>}<div className="article-body"><MarkdownView>{post.content}</MarkdownView></div><SelectionQuote post={post}/><ArticleShareSection post={post}/>{related.length>0&&<section className="related-stories"><header><div><span className="eyebrow">GỢI Ý CHO BẠN</span><h2>Có thể bạn quan tâm</h2></div><Link to="/blog">Khám phá thêm <span>→</span></Link></header><div>{related.map(item=><BlogCard key={item.id} post={item}/>)}</div></section>}<ThreadedComments post={post} initialComments={comments}/></article></Layout>
+  const { slug = "" } = useParams();
+  const { user } = useAuth();
+  const [post, setPost] = useState<Post | null>(null);
+  const [comments, setComments] = useState<Comment[]>([]);
+  const [related, setRelated] = useState<Post[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    Promise.all([api.post(slug), api.comments(slug)])
+      .then(([p, c]) => {
+        setPost(p);
+        setComments(c ?? []);
+      })
+      .catch((err) =>
+        setError(err instanceof Error ? err.message : "Story not found"),
+      )
+      .finally(() => setLoading(false));
+  }, [slug]);
+  useEffect(() => {
+    if (!post) return;
+    const recent = recentPostIds();
+    rememberPost(post.id);
+    api
+      .recommendations(post.slug, recent)
+      .then(setRelated)
+      .catch(() => setRelated([]));
+  }, [post]);
+  const articleUrl = `/blog/${slug}`;
+  useSeo({
+    title: post?.title ?? "Lumina story",
+    description: post?.excerpt || seoDefaults.description,
+    path: articleUrl,
+    image: post?.thumbnail?.url,
+    type: "article",
+    noIndex: Boolean(error),
+    jsonLd: post
+      ? {
+          "@context": "https://schema.org",
+          "@type": "BlogPosting",
+          headline: post.title,
+          description: post.excerpt,
+          image: post.thumbnail?.url
+            ? new URL(post.thumbnail.url, window.location.origin).href
+            : undefined,
+          datePublished: post.published_at,
+          dateModified: post.updated_at ?? post.published_at,
+          author: {
+            "@type": "Person",
+            name: post.author?.name ?? "Lumina Author",
+            url: post.author?.username
+              ? `${window.location.origin}/author/${post.author.username}`
+              : undefined,
+          },
+          publisher: {
+            "@type": "Organization",
+            name: "Lumina",
+            logo: {
+              "@type": "ImageObject",
+              url: `${window.location.origin}/icons/icon-512.png`,
+            },
+          },
+          mainEntityOfPage: `${window.location.origin}${articleUrl}`,
+          keywords: post.tags?.map((tag) => tag.name).join(", ") || undefined,
+        }
+      : undefined,
+  });
+  if (loading)
+    return (
+      <Layout dark>
+        <Loading />
+      </Layout>
+    );
+  if (error || !post)
+    return (
+      <Layout dark>
+        <ErrorState message={error || "Story not found"} />
+      </Layout>
+    );
+  const canEdit = user && (user.role === "admin" || user.id === post.author_id);
+  return (
+    <Layout dark>
+      <article className="article">
+        {canEdit && (
+          <nav className="author-story-actions" aria-label="Story management">
+            <Link
+              className="story-action-icon"
+              to={`/admin/posts/${post.id}/edit`}
+              aria-label="Edit story"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 20h4l11-11a2.8 2.8 0 0 0-4-4L4 16v4Z" />
+                <path d="m13.5 6.5 4 4" />
+              </svg>
+              <span role="tooltip">Edit story</span>
+            </Link>
+            <Link
+              className="story-action-icon"
+              to={`/admin/posts/${post.id}/versions`}
+              aria-label="Version history"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+                <path d="M3 3v5h5M12 7v5l3 2" />
+              </svg>
+              <span role="tooltip">Version history</span>
+            </Link>
+          </nav>
+        )}
+        <header>
+          <span className="eyebrow">LUMINA JOURNAL</span>
+          <h1>{post.title}</h1>
+          <p className="dek">{post.excerpt}</p>
+          <div className="article-meta-bar">
+            <div className="author-line">
+              <span className="avatar">{post.author?.name?.[0] ?? "L"}</span>
+              <div>
+                <strong>
+                  {post.author?.username ? (
+                    <Link to={`/author/${post.author.username}`}>
+                      {post.author.name}
+                    </Link>
+                  ) : (
+                    (post.author?.name ?? "Lumina Author")
+                  )}
+                </strong>
+                <time dateTime={post.published_at}>
+                  {post.published_at
+                    ? new Date(post.published_at).toLocaleDateString()
+                    : ""}
+                </time>
+              </div>
+            </div>
+            <div className="article-meta-actions">
+              <StoryBookmarkButton postId={post.id} />
+              <SocialShareBar post={post} />
+            </div>
+          </div>
+        </header>
+        {post.thumbnail && (
+          <PreviewableImage
+            className="article-hero"
+            src={post.thumbnail.url}
+            alt={post.title}
+          />
+        )}
+        <div className="article-body">
+          <MarkdownView>{post.content}</MarkdownView>
+        </div>
+        <SelectionQuote post={post} />
+        <ArticleShareSection post={post} />
+        {related.length > 0 && (
+          <section className="related-stories">
+            <header>
+              <div>
+                <span className="eyebrow">GỢI Ý CHO BẠN</span>
+                <h2>Có thể bạn quan tâm</h2>
+              </div>
+              <Link to="/blog">
+                Khám phá thêm <span>→</span>
+              </Link>
+            </header>
+            <div>
+              {related.map((item) => (
+                <BlogCard key={item.id} post={item} />
+              ))}
+            </div>
+          </section>
+        )}
+        <ThreadedComments post={post} initialComments={comments} />
+      </article>
+    </Layout>
+  );
 }
 
 export function StoryPreviewPage() {
- const {id=''}=useParams(); const {user,loading:authLoading}=useAuth(); const [post,setPost]=useState<Post|null>(null);const[loading,setLoading]=useState(true);const[error,setError]=useState('')
- useEffect(()=>{if(!user){setLoading(false);return}api.myPost(id).then(setPost).catch(err=>setError(err instanceof Error?err.message:'Story not found')).finally(()=>setLoading(false))},[id,user])
- if(authLoading)return <Layout dark><Loading/></Layout>;if(!user)return <Navigate to="/login" replace/>;if(loading)return <Layout dark><Loading/></Layout>;if(error||!post)return <Layout dark><ErrorState message={error||'Story not found'}/></Layout>
- return <Layout dark><article className="article story-preview"><nav className="preview-actions"><Link to="/profile">← My Stories</Link><span className={`profile-status ${post.status}`}>{post.status}</span><Link to={`/admin/posts/${post.id}/edit`}>Edit story →</Link></nav><header><span className="eyebrow">STORY PREVIEW</span><h1>{post.title}</h1><p className="dek">{post.excerpt}</p></header>{post.thumbnail&&<PreviewableImage className="article-hero" src={post.thumbnail.url} alt={post.title}/>}<div className="article-body"><MarkdownView>{post.content}</MarkdownView></div></article></Layout>
+  const { id = "" } = useParams();
+  const { user, loading: authLoading } = useAuth();
+  const [post, setPost] = useState<Post | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+    api
+      .myPost(id)
+      .then(setPost)
+      .catch((err) =>
+        setError(err instanceof Error ? err.message : "Story not found"),
+      )
+      .finally(() => setLoading(false));
+  }, [id, user]);
+  if (authLoading)
+    return (
+      <Layout dark>
+        <Loading />
+      </Layout>
+    );
+  if (!user) return <Navigate to="/login" replace />;
+  if (loading)
+    return (
+      <Layout dark>
+        <Loading />
+      </Layout>
+    );
+  if (error || !post)
+    return (
+      <Layout dark>
+        <ErrorState message={error || "Story not found"} />
+      </Layout>
+    );
+  return (
+    <Layout dark>
+      <article className="article story-preview">
+        <nav className="preview-actions">
+          <Link to="/profile">← My Stories</Link>
+          <span className={`profile-status ${post.status}`}>{post.status}</span>
+          <Link to={`/admin/posts/${post.id}/edit`}>Edit story →</Link>
+        </nav>
+        <header>
+          <span className="eyebrow">STORY PREVIEW</span>
+          <h1>{post.title}</h1>
+          <p className="dek">{post.excerpt}</p>
+        </header>
+        {post.thumbnail && (
+          <PreviewableImage
+            className="article-hero"
+            src={post.thumbnail.url}
+            alt={post.title}
+          />
+        )}
+        <div className="article-body">
+          <MarkdownView>{post.content}</MarkdownView>
+        </div>
+      </article>
+    </Layout>
+  );
 }
 
 const info = {
- about: { eyebrow: 'OUR STORY', title: 'The Story Behind Lumina', intro: 'A space for curiosity, growth, and shared journeys.', body: [
-  'Lumina started with a simple, personal vision: to build a quiet corner on the internet to document life’s experiences and the endless process of learning.',
-  'More than just a platform, this is a living portfolio of thoughts, projects, and the valuable lessons picked up along the way. Whether it’s decoding a new concept, reflecting on a daily milestone, or sharing a story worth telling, everything here is crafted to be shared with you.',
-  'We provide the blank canvas and the simple tools—you bring the ideas. Take a look around, explore the stories, and let’s learn together without letting the interface get in the way of the words.',
- ] },
- privacy: { eyebrow: 'PRIVACY FIRST', title: 'Privacy & Trust', intro: 'Your experiences are personal. We keep it that way.', body: [
-  'Writing requires a safe space, and your personal information deserves the utmost respect. At Lumina, we believe in radical simplicity and privacy.',
-  'We only collect the bare minimum needed to keep this platform running smoothly. Your private drafts and thoughts remain entirely yours—visible only to you and authorized administrators.',
-  'We do not, and will never, sell your personal data. With industry-standard security protecting your uploads and credentials, you can focus on what truly matters: writing and sharing your journey with peace of mind.',
- ] },
- socials: { eyebrow: 'STAY CONNECTED', title: "Let's Connect", intro: 'The conversation continues beyond these pages.', body: [
-  'The best part of learning and sharing is the community that grows around it. While our official social channels are currently being brewed behind the scenes, the door is always open for a good conversation.',
-  'Whether you want to exchange ideas, discuss a recent post, or explore a potential partnership, I would love to hear from you. Use the contact information provided below to reach out.',
-  'In the meantime, dive into the latest stories, gather some inspiration, or start publishing a chapter of your own.',
- ] },
-} as const
+  about: {
+    eyebrow: "OUR STORY",
+    title: "The Story Behind Lumina",
+    intro: "A space for curiosity, growth, and shared journeys.",
+    body: [
+      "Lumina started with a simple, personal vision: to build a quiet corner on the internet to document life’s experiences and the endless process of learning.",
+      "More than just a platform, this is a living portfolio of thoughts, projects, and the valuable lessons picked up along the way. Whether it’s decoding a new concept, reflecting on a daily milestone, or sharing a story worth telling, everything here is crafted to be shared with you.",
+      "We provide the blank canvas and the simple tools—you bring the ideas. Take a look around, explore the stories, and let’s learn together without letting the interface get in the way of the words.",
+    ],
+  },
+  privacy: {
+    eyebrow: "PRIVACY FIRST",
+    title: "Privacy & Trust",
+    intro: "Your experiences are personal. We keep it that way.",
+    body: [
+      "Writing requires a safe space, and your personal information deserves the utmost respect. At Lumina, we believe in radical simplicity and privacy.",
+      "We only collect the bare minimum needed to keep this platform running smoothly. Your private drafts and thoughts remain entirely yours—visible only to you and authorized administrators.",
+      "We do not, and will never, sell your personal data. With industry-standard security protecting your uploads and credentials, you can focus on what truly matters: writing and sharing your journey with peace of mind.",
+    ],
+  },
+  socials: {
+    eyebrow: "STAY CONNECTED",
+    title: "Let's Connect",
+    intro: "The conversation continues beyond these pages.",
+    body: [
+      "The best part of learning and sharing is the community that grows around it. While our official social channels are currently being brewed behind the scenes, the door is always open for a good conversation.",
+      "Whether you want to exchange ideas, discuss a recent post, or explore a potential partnership, I would love to hear from you. Use the contact information provided below to reach out.",
+      "In the meantime, dive into the latest stories, gather some inspiration, or start publishing a chapter of your own.",
+    ],
+  },
+} as const;
+
+const infoVi = {
+  about: {
+    eyebrow: "CÂU CHUYỆN CỦA CHÚNG TÔI",
+    title: "Câu chuyện phía sau Lumina",
+    intro: "Một không gian dành cho sự tò mò, trưởng thành và những hành trình sẻ chia.",
+    body: [
+      "Lumina bắt đầu từ một mong muốn giản dị và rất riêng: xây dựng một góc yên tĩnh trên internet để ghi lại những trải nghiệm trong cuộc sống cùng hành trình học hỏi không ngừng.",
+      "Không chỉ là một nền tảng, đây còn là hồ sơ sống động của những suy nghĩ, dự án và bài học quý giá được góp nhặt trên đường đi. Dù là giải mã một khái niệm mới, nhìn lại một cột mốc thường ngày hay kể một câu chuyện đáng được lắng nghe, mọi nội dung tại đây đều được chăm chút để sẻ chia cùng bạn.",
+      "Chúng tôi mang đến trang giấy trắng và những công cụ đơn giản — bạn mang đến ý tưởng. Hãy dạo quanh, khám phá các bài viết và cùng nhau học hỏi, để giao diện không bao giờ cản trở sức mạnh của ngôn từ.",
+    ],
+  },
+  privacy: {
+    eyebrow: "ƯU TIÊN QUYỀN RIÊNG TƯ",
+    title: "Quyền riêng tư và sự tin cậy",
+    intro: "Trải nghiệm của bạn là riêng tư. Chúng tôi luôn tôn trọng điều đó.",
+    body: [
+      "Viết lách cần một không gian an toàn và thông tin cá nhân của bạn xứng đáng được tôn trọng tuyệt đối. Tại Lumina, chúng tôi theo đuổi sự tối giản và quyền riêng tư một cách rõ ràng.",
+      "Chúng tôi chỉ thu thập lượng thông tin tối thiểu cần thiết để nền tảng vận hành ổn định. Bản nháp và suy nghĩ riêng tư hoàn toàn thuộc về bạn, chỉ bạn và quản trị viên được ủy quyền mới có thể xem.",
+      "Chúng tôi không và sẽ không bao giờ bán dữ liệu cá nhân của bạn. Với các tiêu chuẩn bảo mật phù hợp để bảo vệ nội dung tải lên và thông tin đăng nhập, bạn có thể tập trung vào điều quan trọng nhất: viết và chia sẻ hành trình của mình một cách an tâm.",
+    ],
+  },
+} as const;
 
 export function InfoPage({ page }: { page: keyof typeof info }) {
- const content=info[page]
- return <Layout dark><article className="info-page container"><span className="eyebrow">{content.eyebrow}</span><h1>{content.title}</h1><p className="info-intro">{content.intro}</p><div>{content.body.map(paragraph=><p key={paragraph}>{paragraph}</p>)}</div></article></Layout>
+  const { locale } = useI18n();
+  const content = locale === "vi" && page !== "socials" ? infoVi[page] : info[page];
+  return (
+    <Layout dark>
+      <article className="info-page container">
+        <span className="eyebrow">{content.eyebrow}</span>
+        <h1>{content.title}</h1>
+        <p className="info-intro">{content.intro}</p>
+        <div>
+          {content.body.map((paragraph) => (
+            <p key={paragraph}>{paragraph}</p>
+          ))}
+        </div>
+      </article>
+    </Layout>
+  );
 }
