@@ -498,7 +498,7 @@ export function ArticlePage() {
           <nav className="author-story-actions" aria-label="Story management">
             <Link
               className="story-action-icon"
-              to={`/admin/posts/${post.id}/edit`}
+              to={`/blog/manage/${post.id}/edit`}
               aria-label="Edit story"
             >
               <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -509,7 +509,7 @@ export function ArticlePage() {
             </Link>
             <Link
               className="story-action-icon"
-              to={`/admin/posts/${post.id}/versions`}
+              to={`/blog/manage/${post.id}/versions`}
               aria-label="Version history"
             >
               <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -557,9 +557,6 @@ export function ArticlePage() {
             alt={post.title}
           />
         )}
-        <div className="article-body">
-          <MarkdownView>{post.content}</MarkdownView>
-        </div>
         <SelectionQuote post={post} />
         <ArticleShareSection post={post} />
         {related.length > 0 && (
@@ -628,9 +625,9 @@ export function StoryPreviewPage() {
     <Layout dark>
       <article className="article story-preview">
         <nav className="preview-actions">
-          <Link to="/profile">← My Stories</Link>
+          <Link to="/blog/manage">← My Stories</Link>
           <span className={`profile-status ${post.status}`}>{post.status}</span>
-          <Link to={`/admin/posts/${post.id}/edit`}>Edit story →</Link>
+          <Link to={`/blog/manage/${post.id}/edit`}>Edit story →</Link>
         </nav>
         <header>
           <span className="eyebrow">STORY PREVIEW</span>

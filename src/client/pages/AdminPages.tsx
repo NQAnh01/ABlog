@@ -190,7 +190,7 @@ export function AdminPostsPage() {
               <h1>{isStaff ? "All stories" : "Your stories"}</h1>
               <p>Write freely, then choose who can see each story.</p>
             </div>
-            <Link className="button" to="/admin/posts/create">
+            <Link className="button" to="/blog/new">
               Create story&nbsp; +
             </Link>
           </header>
@@ -295,7 +295,7 @@ export function AdminPostsPage() {
                       <span className="story-placeholder">L</span>
                     )}
                     <div>
-                      <Link to={`/admin/posts/${post.id}/edit`}>
+                      <Link to={`/blog/manage/${post.id}/edit`}>
                         {post.title}
                       </Link>
                       <small>/{post.slug}</small>
@@ -326,7 +326,7 @@ export function AdminPostsPage() {
                     )}
                     <Link
                       title="Edit story"
-                      to={`/admin/posts/${post.id}/edit`}
+                      to={`/blog/manage/${post.id}/edit`}
                     >
                       Edit
                     </Link>
@@ -943,7 +943,7 @@ export function PostEditorPage() {
       navigate(
         saved.status === "public"
           ? `/blog/${saved.slug}`
-          : `/stories/${saved.id}/preview`,
+          : `/blog/manage/${saved.id}/preview`,
         { replace: true },
       );
     } catch (err) {
@@ -1023,14 +1023,14 @@ export function PostEditorPage() {
           <section className="post-editor-page container">
             <header className="editor-topbar">
               <div>
-                <Link to="/admin/posts">← &nbsp;{t("editor.allStories", "All stories")}</Link>
+                <Link to="/blog/manage">← &nbsp;{t("editor.allStories", "All stories")}</Link>
                 <span>{editing ? t("editor.editing", "EDITING STORY") : t("editor.new", "NEW STORY")}</span>
               </div>
               <div>
                 {id && (
                   <Link
                     className="history-link"
-                    to={`/admin/posts/${id}/versions`}
+                    to={`/blog/manage/${id}/versions`}
                   >
                     {t("editor.history", "Version history")}
                   </Link>
@@ -1402,7 +1402,7 @@ export function PostVersionsPage() {
         <section className="version-page container">
           <header>
             <div>
-              <Link to={`/admin/posts/${post.id}/edit`}>← Back to editor</Link>
+              <Link to={`/blog/manage/${post.id}/edit`}>← Back to editor</Link>
               <span className="eyebrow">REVISION HISTORY</span>
               <h1>{post.title}</h1>
             </div>
@@ -1481,7 +1481,7 @@ export function AdminDashboardPage() {
     );
   if (!user) return <Navigate to="/login" replace />;
   if (user.role !== "admin" && user.role !== "editor")
-    return <Navigate to="/admin/posts" replace />;
+    return <Navigate to="/blog/manage" replace />;
   if (!data)
     return (
       <Layout>
@@ -1564,7 +1564,7 @@ export function AdminDashboardPage() {
                 Manage users <span>→</span>
               </Link>
             )}
-            <Link className="button" to="/admin/posts">
+            <Link className="button" to="/blog/manage">
               Manage stories <span>→</span>
             </Link>
           </div>
@@ -1702,7 +1702,7 @@ export function AdminDashboardPage() {
                 <span className="panel-kicker">LATEST ACTIVITY</span>
                 <h2>Recently updated</h2>
               </div>
-              <Link to="/admin/posts">
+              <Link to="/blog/manage">
                 View all <span>→</span>
               </Link>
             </header>
@@ -1725,7 +1725,7 @@ export function AdminDashboardPage() {
                     </span>
                     <Link
                       aria-label={`Edit ${post.title}`}
-                      to={`/admin/posts/${post.id}/edit`}
+                      to={`/blog/manage/${post.id}/edit`}
                     >
                       ↗
                     </Link>
@@ -1775,7 +1775,7 @@ export function AdminUsersPage() {
       </Layout>
     );
   if (!user) return <Navigate to="/login" replace />;
-  if (user.role !== "admin") return <Navigate to="/profile" replace />;
+  if (user.role !== "admin") return <Navigate to="/personal" replace />;
   async function resetAccount(account: User) {
     if (
       !(await confirmAction({
@@ -1940,7 +1940,7 @@ export function AdminUserDetailPage() {
       </Layout>
     );
   if (!user) return <Navigate to="/login" replace />;
-  if (user.role !== "admin") return <Navigate to="/profile" replace />;
+  if (user.role !== "admin") return <Navigate to="/personal" replace />;
 
   if (loading)
     return (
@@ -2428,7 +2428,7 @@ export function AdminCommentsPage() {
       </Layout>
     );
   if (!user) return <Navigate to="/login" replace />;
-  if (user.role !== "admin") return <Navigate to="/profile" replace />;
+  if (user.role !== "admin") return <Navigate to="/personal" replace />;
   async function status(comment: Comment, next: string) {
     if (
       !(await confirmAction({

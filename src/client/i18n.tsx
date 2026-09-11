@@ -19,6 +19,7 @@ Object.assign(vi, {
   'editor.tags':'Thẻ','editor.manage':'Quản lý','editor.done':'Xong','editor.noTags':'Chưa chọn thẻ','editor.searchTag':'Tìm hoặc tạo thẻ…','editor.createTag':'Tạo “{name}”','editor.creatingTag':'Đang tạo “{name}”…','editor.pressEnter':'Nhấn Enter','editor.tagSelected':'Thẻ này đã được chọn.','editor.findTag':'Nhập để tìm thẻ.'
 })
 
+Object.assign(vi, { 'nav.personal': 'Cá nhân' })
 interface I18nValue { locale: Locale; setLocale: (locale: Locale) => void; t: (key: string, fallback?: string, params?: Params) => string; formatDate: (value: string | Date, options?: Intl.DateTimeFormatOptions) => string }
 const Context = createContext<I18nValue | null>(null)
 const interpolate = (value: string, params: Params = {}) => value.replace(/\{(\w+)\}/g, (_, key) => String(params[key] ?? `{${key}}`))

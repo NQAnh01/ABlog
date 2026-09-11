@@ -331,7 +331,7 @@ export function UserSettingsPage() {
             <h1>Your profile</h1>
             <p>Keep your public information current and your account secure.</p>
           </div>
-          <Link to="/profile">
+          <Link to="/personal">
             <ArrowLeft aria-hidden="true" /> Back to your stories
           </Link>
         </header>

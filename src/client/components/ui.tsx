@@ -148,7 +148,7 @@ export function Header({
             <NavLink to="/discussions">
               {t("nav.discussions", "Discussions")}
             </NavLink>
-            <NavLink to="/profile">{t("nav.myStories", "My Stories")}</NavLink>
+            <NavLink to="/blog/manage">{t("nav.myStories", "My Stories")}</NavLink>
             {user?.role === "admin" && (
               <NavLink className="admin-nav-button" to="/admin/dashboard">
                 <Gauge aria-hidden="true" />
@@ -161,7 +161,7 @@ export function Header({
           </nav>
           <div className="nav-actions">
             {!isEditorPage && user && (
-              <Link className="button compact" to="/admin/posts/create">
+              <Link className="button compact" to="/blog/new">
                 {t("nav.newPost", "New Post")}
               </Link>
             )}
@@ -216,23 +216,26 @@ export function Header({
                           <small>{user.email}</small>
                         </div>
                       </div>
+                      <Link role="menuitem" to="/personal" onClick={() => setAccountOpen(false)}>
+                        {t("nav.personal", "Personal")}
+                      </Link>
                       <Link
                         role="menuitem"
-                        to="/saved"
+                        to="/personal/reading-list"
                         onClick={() => setAccountOpen(false)}
                       >
                         {t("nav.saved", "Saved stories")}
                       </Link>
                       <Link
                         role="menuitem"
-                        to="/todos"
+                        to="/personal/targets"
                         onClick={() => setAccountOpen(false)}
                       >
                         {t("nav.todos", "Targets & todos")}
                       </Link>
                       <Link
                         role="menuitem"
-                        to="/profile/settings"
+                        to="/personal/settings"
                         onClick={() => setAccountOpen(false)}
                       >
                         {t("nav.settings", "Account settings")}
@@ -329,6 +332,7 @@ export function Header({
             <kbd>⌘K</kbd>
           </button>
           <nav>
+            {user && <NavLink to="/personal"><span><Settings aria-hidden="true" /></span>{t("nav.personal", "Personal")}</NavLink>}
             <NavLink to="/" end>
               <span>
                 <Home aria-hidden="true" />
@@ -347,7 +351,7 @@ export function Header({
               </span>
               Discussions
             </NavLink>
-            <NavLink to="/profile">
+            <NavLink to="/blog/manage">
               <span>
                 <PenLine aria-hidden="true" />
               </span>
@@ -362,7 +366,7 @@ export function Header({
               </NavLink>
             )}
             {user && (
-              <NavLink to="/saved">
+              <NavLink to="/personal/reading-list">
                 <span>
                   <Bookmark aria-hidden="true" />
                 </span>
@@ -380,7 +384,7 @@ export function Header({
           </nav>
           <footer>
             {user && (
-              <Link className="mobile-new-post" to="/admin/posts/create">
+              <Link className="mobile-new-post" to="/blog/new">
                 <Plus aria-hidden="true" /> Create new story
               </Link>
             )}
@@ -396,13 +400,13 @@ export function Header({
             </button>
             {user ? (
               <>
-                <Link to="/todos">
+                <Link to="/personal/targets">
                   <span>
                     <Bookmark aria-hidden="true" />
                   </span>
                   Targets &amp; todos
                 </Link>
-                <Link to="/profile/settings">
+                <Link to="/personal/settings">
                   <span>
                     <Settings aria-hidden="true" />
                   </span>
@@ -471,8 +475,8 @@ export function Footer() {
               <Link to="/discussions">
                 {t("footer.discussions", "Discussions Exchange")}
               </Link>
-              <Link to="/saved">{t("footer.readingList", "Reading List")}</Link>
-              <Link to="/todos">{t("nav.todos", "Targets & Todos")}</Link>
+              <Link to="/personal/reading-list">{t("footer.readingList", "Reading List")}</Link>
+              <Link to="/personal/targets">{t("nav.todos", "Targets & Todos")}</Link>
             </nav>
           </div>
 
