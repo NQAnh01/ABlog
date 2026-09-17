@@ -82,13 +82,81 @@ func (s *Server) createTodo(c *fiber.Ctx) error {
 		return bad("INVALID_REQUEST", "Invalid request")
 	}
 	input.Title, input.Notes, e = productivity.Todo(input.Title, input.Notes)
-	if e != nil { return fiber.NewError(422, e.Error()) }
+	if e != nil {
+		return fiber.NewError(422, e.Error())
+	}
 	now := time.Now().UTC()
 	value := model.Todo{ID: primitive.NewObjectID(), UserID: c.Locals("user_id").(primitive.ObjectID), Title: input.Title, Notes: input.Notes, CreatedAt: now, UpdatedAt: now}
 	if _, e = db.Collection("todos").InsertOne(c.UserContext(), value); e != nil {
 		return e
 	}
 	return success(c, 201, value)
+}
+
+func (s *Server) listCaptures(c *fiber.Ctx) error {
+	db, err := s.featureDB()
+	if err != nil {
+		return err
+	}
+	cursor, err := db.Collection("captures").Find(c.UserContext(), bson.M{"user_id": c.Locals("user_id").(primitive.ObjectID)}, options.Find().SetSort(bson.D{{Key: "created_at", Value: -1}}).SetLimit(100))
+	if err != nil {
+		return err
+	}
+	var values []model.Capture
+	if err = cursor.All(c.UserContext(), &values); err != nil {
+		return err
+	}
+	if values == nil {
+		values = []model.Capture{}
+	}
+	return success(c, 200, values)
+}
+
+func (s *Server) createCapture(c *fiber.Ctx) error {
+	db, err := s.featureDB()
+	if err != nil {
+		return err
+	}
+	var input struct {
+		Content string `json:"content"`
+		Kind    string `json:"kind"`
+	}
+	if c.BodyParser(&input) != nil {
+		return bad("INVALID_REQUEST", "Invalid request")
+	}
+	input.Content = strings.TrimSpace(input.Content)
+	input.Kind = strings.ToLower(strings.TrimSpace(input.Kind))
+	if input.Content == "" || len([]rune(input.Content)) > 2000 {
+		return fiber.NewError(422, "Capture must contain between 1 and 2000 characters")
+	}
+	if input.Kind != "idea" && input.Kind != "quote" && input.Kind != "task" {
+		input.Kind = "idea"
+	}
+	now := time.Now().UTC()
+	value := model.Capture{ID: primitive.NewObjectID(), UserID: c.Locals("user_id").(primitive.ObjectID), Content: input.Content, Kind: input.Kind, CreatedAt: now, UpdatedAt: now}
+	if _, err = db.Collection("captures").InsertOne(c.UserContext(), value); err != nil {
+		return err
+	}
+	return success(c, 201, value)
+}
+
+func (s *Server) deleteCapture(c *fiber.Ctx) error {
+	db, err := s.featureDB()
+	if err != nil {
+		return err
+	}
+	id, err := primitive.ObjectIDFromHex(c.Params("id"))
+	if err != nil {
+		return fiber.NewError(400, "invalid capture id")
+	}
+	result, err := db.Collection("captures").DeleteOne(c.UserContext(), bson.M{"_id": id, "user_id": c.Locals("user_id").(primitive.ObjectID)})
+	if err != nil {
+		return err
+	}
+	if result.DeletedCount == 0 {
+		return fiber.NewError(404, "capture not found")
+	}
+	return c.SendStatus(204)
 }
 
 func parseTargetInput(c *fiber.Ctx) (string, string, time.Time, error) {
@@ -101,7 +169,9 @@ func parseTargetInput(c *fiber.Ctx) (string, string, time.Time, error) {
 		return "", "", time.Time{}, fiber.NewError(400, "invalid request")
 	}
 	title, description, due, err := productivity.Target(input.Title, input.Description, input.DueDate)
-	if err != nil { return "", "", time.Time{}, fiber.NewError(422, err.Error()) }
+	if err != nil {
+		return "", "", time.Time{}, fiber.NewError(422, err.Error())
+	}
 	return title, description, due, nil
 }
 
@@ -310,7 +380,9 @@ func (s *Server) createTargetTodo(c *fiber.Ctx) error {
 		return bad("INVALID_REQUEST", "Invalid request")
 	}
 	input.Title, input.Notes, e = productivity.Todo(input.Title, input.Notes)
-	if e != nil { return fiber.NewError(422, e.Error()) }
+	if e != nil {
+		return fiber.NewError(422, e.Error())
+	}
 	now := time.Now().UTC()
 	value := model.Todo{ID: primitive.NewObjectID(), UserID: uid, TargetID: id, Title: input.Title, Notes: input.Notes, CreatedAt: now, UpdatedAt: now}
 	if _, e = db.Collection("todos").InsertOne(c.UserContext(), value); e != nil {
@@ -336,7 +408,9 @@ func (s *Server) updateTodo(c *fiber.Ctx) error {
 		return bad("INVALID_REQUEST", "Invalid request")
 	}
 	input.Title, input.Notes, e = productivity.Todo(input.Title, input.Notes)
-	if e != nil { return fiber.NewError(422, e.Error()) }
+	if e != nil {
+		return fiber.NewError(422, e.Error())
+	}
 	filter := bson.M{"_id": id, "user_id": c.Locals("user_id").(primitive.ObjectID)}
 	after := options.FindOneAndUpdate().SetReturnDocument(options.After)
 	var value model.Todo
@@ -491,7 +565,9 @@ func (s *Server) createDiscussion(c *fiber.Ctx) error {
 		return bad("INVALID_REQUEST", "Invalid request")
 	}
 	input.Title, input.Content, e = productivity.Discussion(input.Title, input.Content)
-	if e != nil { return fiber.NewError(422, e.Error()) }
+	if e != nil {
+		return fiber.NewError(422, e.Error())
+	}
 	now := time.Now().UTC()
 	value := model.Discussion{ID: primitive.NewObjectID(), AuthorID: c.Locals("user_id").(primitive.ObjectID), Title: input.Title, Content: input.Content, Comments: []model.DiscussionComment{}, InterestedIDs: []primitive.ObjectID{}, CreatedAt: now, UpdatedAt: now}
 	if _, e = db.Collection("discussions").InsertOne(c.UserContext(), value); e != nil {

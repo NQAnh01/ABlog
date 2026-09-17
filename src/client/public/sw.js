@@ -1,5 +1,5 @@
 /* global self, caches, URL, fetch, Response, Request */
-const VERSION='lumina-v2'
+const VERSION='lumina-v3'
 const SHELL=`${VERSION}-shell`,ASSETS=`${VERSION}-assets`,ARTICLES=`${VERSION}-articles`
 const META_URL='/__lumina_offline_articles__',MAX_ARTICLES=12,MAX_ASSETS=80
 const SHELL_FILES=['/','/manifest.json','/offline.html','/icons/icon-192.png','/icons/icon-512.png']

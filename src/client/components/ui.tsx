@@ -36,6 +36,7 @@ import {
   X,
 } from "lucide-react";
 import { useI18n } from "../i18n";
+import { MobileExperience } from "./MobileExperience";
 
 export function Logo() {
   return (
@@ -144,7 +145,7 @@ export function Header({
             <NavLink to="/" end>
               {t("nav.home", "Home")}
             </NavLink>
-            <NavLink to="/blog">{t("nav.explore", "Explore")}</NavLink>
+            <NavLink to="/blog" end>{t("nav.explore", "Explore")}</NavLink>
             <NavLink to="/discussions">
               {t("nav.discussions", "Discussions")}
             </NavLink>
@@ -625,6 +626,7 @@ export function Layout({
       <Footer />
       <ScrollFeedback />
       <CommandPalette dark={dark} onToggleTheme={toggleTheme} />
+      <MobileExperience />
     </div>
   );
 }

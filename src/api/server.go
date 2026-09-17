@@ -161,6 +161,9 @@ func (s *Server) routes() {
 	mine.Put("/authors/:authorId/follow", s.followAuthor)
 	mine.Get("/recommendations", s.personalRecommendations)
 	mine.Get("/todos", s.listTodos)
+	mine.Get("/captures", s.listCaptures)
+	mine.Post("/captures", s.createCapture)
+	mine.Delete("/captures/:id", s.deleteCapture)
 	mine.Get("/targets", s.listTargets)
 	mine.Post("/targets", s.createTarget)
 	mine.Put("/targets/:id", s.updateTarget)
@@ -571,7 +574,7 @@ func (s *Server) register(c *fiber.Ctx) error {
 		return fiber.NewError(422, e.Error())
 	}
 	s.cookie(c, t.Refresh)
-	return success(c, 201, fiber.Map{"access_token": t.Access, "user": t.User})
+	return success(c, 201, s.authPayload(t, c.Get("X-Lumina-Client") == "mobile"))
 }
 func (s *Server) login(c *fiber.Ctx) error {
 	var in credentials
@@ -583,10 +586,19 @@ func (s *Server) login(c *fiber.Ctx) error {
 		return fiber.NewError(401, "Invalid email or password")
 	}
 	s.cookie(c, t.Refresh)
-	return success(c, 200, fiber.Map{"access_token": t.Access, "user": t.User})
+	return success(c, 200, s.authPayload(t, c.Get("X-Lumina-Client") == "mobile"))
 }
 func (s *Server) refresh(c *fiber.Ctx) error {
 	raw := c.Cookies("lumina_refresh")
+	mobileToken := false
+	if c.Get("X-Lumina-Client") == "mobile" {
+		var input struct {
+			RefreshToken string `json:"refresh_token"`
+		}
+		if c.BodyParser(&input) == nil && strings.TrimSpace(input.RefreshToken) != "" {
+			raw, mobileToken = strings.TrimSpace(input.RefreshToken), true
+		}
+	}
 	if raw == "" {
 		return fiber.ErrUnauthorized
 	}
@@ -595,14 +607,30 @@ func (s *Server) refresh(c *fiber.Ctx) error {
 		return fiber.ErrUnauthorized
 	}
 	s.cookie(c, t.Refresh)
-	return success(c, 200, fiber.Map{"access_token": t.Access, "user": t.User})
+	return success(c, 200, s.authPayload(t, mobileToken))
 }
 func (s *Server) logout(c *fiber.Ctx) error {
-	if raw := c.Cookies("lumina_refresh"); raw != "" {
+	raw := c.Cookies("lumina_refresh")
+	if c.Get("X-Lumina-Client") == "mobile" {
+		var input struct {
+			RefreshToken string `json:"refresh_token"`
+		}
+		if c.BodyParser(&input) == nil && strings.TrimSpace(input.RefreshToken) != "" {
+			raw = strings.TrimSpace(input.RefreshToken)
+		}
+	}
+	if raw != "" {
 		_ = s.auth.Logout(c.UserContext(), raw)
 	}
 	c.Cookie(&fiber.Cookie{Name: "lumina_refresh", Value: "", HTTPOnly: true, Expires: time.Unix(0, 0), SameSite: "Lax"})
 	return c.SendStatus(204)
+}
+func (s *Server) authPayload(t *user.Tokens, includeRefresh bool) fiber.Map {
+	value := fiber.Map{"access_token": t.Access, "user": t.User}
+	if includeRefresh {
+		value["refresh_token"] = t.Refresh
+	}
+	return value
 }
 func (s *Server) cookie(c *fiber.Ctx, v string) {
 	c.Cookie(&fiber.Cookie{Name: "lumina_refresh", Value: v, HTTPOnly: true, Secure: s.cfg.Env == "production", SameSite: "Lax", Path: "/api/auth", Expires: time.Now().Add(s.cfg.RefreshTTL)})

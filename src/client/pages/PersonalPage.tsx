@@ -1,5 +1,5 @@
 import { Link, Navigate } from "react-router-dom";
-import { Bookmark, BookOpen, CheckSquare, PenLine, Settings, UserRound } from "lucide-react";
+import { Bookmark, BookOpen, CheckSquare, Lightbulb, PenLine, Settings, UserRound } from "lucide-react";
 import { Layout, Loading } from "../components/ui";
 import { useAuth } from "../hooks/useAuth";
 import { useI18n } from "../i18n";
@@ -11,6 +11,7 @@ export function PersonalPage() {
   if (!user) return <Navigate to="/login" replace />;
   const vi = locale === "vi";
   const items = [
+    { to: "/personal/captures", icon: Lightbulb, title: vi ? "Quick Capture" : "Quick Capture", text: vi ? "Hộp thư ý tưởng, trích dẫn và việc cần làm." : "Your inbox for ideas, quotes, and tasks." },
     { to: "/blog/manage", icon: PenLine, title: vi ? "Quản lý bài viết" : "Manage stories", text: vi ? "Tạo, chỉnh sửa, xuất bản và sắp xếp bài viết." : "Create, edit, publish, and organize your stories." },
     { to: user.username ? `/author/${user.username}` : "/personal/settings", icon: UserRound, title: vi ? "Hồ sơ tác giả" : "Author profile", text: vi ? "Xem trang hồ sơ công khai của bạn." : "View your public author page." },
     { to: "/personal/reading-list", icon: Bookmark, title: vi ? "Danh sách đọc" : "Reading list", text: vi ? "Các bài viết bạn đã lưu để đọc sau." : "Stories you saved for later." },

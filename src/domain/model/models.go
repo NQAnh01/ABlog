@@ -73,6 +73,7 @@ type Media struct {
 	Key string `bson:"key" json:"key"`
 	URL string `bson:"url" json:"url"`
 }
+
 const (
 	PostStatusPrivate   = "private"
 	PostStatusPublic    = "public"
@@ -206,6 +207,14 @@ type Todo struct {
 	Title     string             `bson:"title" json:"title"`
 	Notes     string             `bson:"notes,omitempty" json:"notes,omitempty"`
 	Completed bool               `bson:"completed" json:"completed"`
+	CreatedAt time.Time          `bson:"created_at" json:"created_at"`
+	UpdatedAt time.Time          `bson:"updated_at" json:"updated_at"`
+}
+type Capture struct {
+	ID        primitive.ObjectID `bson:"_id,omitempty" json:"id"`
+	UserID    primitive.ObjectID `bson:"user_id" json:"-"`
+	Content   string             `bson:"content" json:"content"`
+	Kind      string             `bson:"kind" json:"kind"`
 	CreatedAt time.Time          `bson:"created_at" json:"created_at"`
 	UpdatedAt time.Time          `bson:"updated_at" json:"updated_at"`
 }

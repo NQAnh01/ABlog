@@ -1,4 +1,4 @@
-import type { AdminPasswordReset, AuthorPageData, Category, Comment, Dashboard, Discussion, DiscussionComment, FeatureFlag, FeatureFlags, FollowState, Media, Page, Post, PostDraft, PostDraftResponse, PostInput, PostVersion, Reaction, ReactionType, Series, SeriesInput, SocialLinks, Tag, Target, Todo, User } from '../types'
+import type { AdminPasswordReset, AuthorPageData, Capture, CaptureKind, Category, Comment, Dashboard, Discussion, DiscussionComment, FeatureFlag, FeatureFlags, FollowState, Media, Page, Post, PostDraft, PostDraftResponse, PostInput, PostVersion, Reaction, ReactionType, Series, SeriesInput, SocialLinks, Tag, Target, Todo, User } from '../types'
 
 const API_ORIGIN = import.meta.env.VITE_API_ORIGIN ?? (import.meta.env.DEV ? 'http://localhost:8088' : '')
 const API = `${API_ORIGIN}/api`
@@ -171,6 +171,9 @@ export const api = {
   recommendations: (postSlug:string,recent:string[]) => request<Post[]>(`/recommendations?post=${encodeURIComponent(postSlug)}&exclude=${encodeURIComponent(recent.join(','))}`),
   personalRecommendations: (recent:string[]) => request<Post[]>(`/me/recommendations?exclude=${encodeURIComponent(recent.join(','))}`),
   todos: (query='') => request<Page<Todo>>(`/me/todos${query}`),
+  captures: () => request<Capture[]>('/me/captures'),
+  createCapture: (content:string,kind:CaptureKind) => request<Capture>('/me/captures',{method:'POST',body:JSON.stringify({content,kind})}),
+  deleteCapture: (id:string) => request<void>(`/me/captures/${id}`,{method:'DELETE'}),
   targets: (query='') => request<Target[]>(`/me/targets${query}`),
   createTarget: (title:string,description:string,dueDate:string) => request<Target>('/me/targets',{method:'POST',body:JSON.stringify({title,description,due_date:dueDate})}),
   updateTarget: (target:Pick<Target,'id'|'title'|'description'|'due_date'>) => request<void>(`/me/targets/${target.id}`,{method:'PUT',body:JSON.stringify(target)}),

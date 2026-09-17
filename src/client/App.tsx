@@ -129,6 +129,7 @@ const DiscussionPage = lazy(() =>
     default: module.DiscussionPage,
   })),
 );
+const CapturesPage = lazy(() => import("./pages/CapturesPage"));
 
 function RouteFallback() {
   const { t } = useI18n();
@@ -173,6 +174,7 @@ export default function App() {
     "/personal/reading-list": { title: "Reading list", description: "Your private reading list.", noIndex: true },
     "/personal/targets": { title: "Targets and todos", description: "Your private targets and todos.", noIndex: true },
     "/personal/offline": { title: "Offline library", description: "Stories saved for offline reading.", noIndex: true },
+    "/personal/captures": { title: "Quick captures", description: "Your private idea inbox.", noIndex: true },
     "/search": {
       title: t("seo.search", "Search stories"),
       description: t(
@@ -419,6 +421,7 @@ export default function App() {
             <Route path="/personal/reading-list" element={<SavedPage />} />
             <Route path="/personal/targets" element={<TodoPage />} />
             <Route path="/personal/offline" element={<OfflinePage />} />
+            <Route path="/personal/captures" element={<CapturesPage />} />
             <Route path="/profile" element={<Navigate to="/blog/manage" replace />} />
             <Route path="/profile/settings" element={<Navigate to="/personal/settings" replace />} />
             <Route path="/saved" element={<Navigate to="/personal/reading-list" replace />} />
