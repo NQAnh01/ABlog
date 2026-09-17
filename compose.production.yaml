@@ -1,0 +1,41 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ${APP_ENV_FILE:-.env.production}
+    environment:
+      APP_ENV: production
+      APP_PORT: "8080"
+      CLIENT_ORIGIN: https://${DOMAIN}
+    expose:
+      - "8080"
+    networks:
+      - lumina
+
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    depends_on:
+      - app
+    environment:
+      DOMAIN: ${DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - lumina
+
+networks:
+  lumina:
+
+volumes:
+  caddy_data:
+  caddy_config:

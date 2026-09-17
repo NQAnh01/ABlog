@@ -16,6 +16,7 @@ RUN addgroup -S lumina && adduser -S lumina -G lumina && mkdir -p /app/uploads &
 WORKDIR /app
 COPY --from=server /lumina ./lumina
 COPY --from=client /build/dist ./dist
+COPY config ./config
 USER lumina
 EXPOSE 8080
 CMD ["./lumina"]
