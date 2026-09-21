@@ -1,70 +1,92 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { Layout, StoryGridSkeleton } from '../components/ui'
+import { Link, useNavigate } from 'react-router-dom'
+import { ArrowRight, ArrowUpRight, BookOpen, Layers3, RotateCcw, Sparkles } from 'lucide-react'
+import { DiscoveryCard, DiscoveryImage, DiscoveryMeta, DiscoverySearch, DiscoverySkeleton, DiscoveryState, DiscoveryTopics } from '../components/Discovery'
+import { Layout } from '../components/ui'
+import { useAuth } from '../hooks/useAuth'
+import { localizedContent, useI18n } from '../i18n'
+import { recentPostIds } from '../recent-reading'
 import { api } from '../services/api'
 import type { Category, Post, PublicUser, Series } from '../types'
-import { useAuth } from '../hooks/useAuth'
-import { recentPostIds } from '../recent-reading'
-import { BlogCard } from '../components/BlogCard'
-
-function formatDate(value?: string) {
-  return value ? new Intl.DateTimeFormat('en', { month:'long',day:'numeric',year:'numeric' }).format(new Date(value)) : ''
-}
-
-function EditorialImage({ post, eager=false }: { post:Post; eager?:boolean }) {
-  const [loaded,setLoaded]=useState(false)
-  return <div className={`editorial-image${loaded?' loaded':''}`}>{post.thumbnail?.url?<img src={post.thumbnail.url} alt="" loading={eager?'eager':'lazy'} decoding="async" fetchPriority={eager?'high':'auto'} onLoad={()=>setLoaded(true)}/>:<span aria-hidden="true">L</span>}</div>
-}
-
-function StoryMeta({ post }: { post:Post }) {
-  return <div className="editorial-meta"><span>{post.author?.name??'Lumina'}</span><i/><time>{formatDate(post.published_at??post.created_at)}</time></div>
-}
-
-function CompactStory({ post, index }: { post:Post; index?:number }) {
-  return <article className="editorial-compact"><Link to={`/blog/${post.slug}`}><span className="compact-number">{String((index??0)+1).padStart(2,'0')}</span><div><StoryMeta post={post}/><h3>{post.title}</h3></div><span className="compact-arrow">↗</span></Link></article>
-}
 
 export function HomePage() {
-  const {user}=useAuth()
-  const [featured,setFeatured]=useState<Post|null>(null)
-  const [posts,setPosts]=useState<Post[]>([])
-  const [trending,setTrending]=useState<Post[]>([])
-  const [categories,setCategories]=useState<Category[]>([])
-  const [featuredSeries,setFeaturedSeries]=useState<Series[]>([])
-  const [forYou,setForYou]=useState<Post[]>([])
-  const [loading,setLoading]=useState(true)
-  const [error,setError]=useState('')
+  const { user } = useAuth()
+  const { locale } = useI18n()
+  const vi = locale === 'vi'
+  const navigate = useNavigate()
+  const [featured, setFeatured] = useState<Post | null>(null)
+  const [posts, setPosts] = useState<Post[]>([])
+  const [categories, setCategories] = useState<Category[]>([])
+  const [series, setSeries] = useState<Series[]>([])
+  const [forYou, setForYou] = useState<Post[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(false)
+  const [retry, setRetry] = useState(0)
+  const [feed, setFeed] = useState<'latest' | 'personal'>('latest')
 
-  useEffect(()=>{
-    let active=true
-    const from=new Date(Date.now()-7*24*60*60*1000).toISOString().slice(0,10)
-    Promise.all([api.posts('?featured=true&limit=1'),api.posts('?limit=30'),api.posts(`?from=${from}&limit=5`).catch(()=>({items:[],page:1,limit:5,total:0})),api.categories().catch(()=>[]),api.series(true).catch(()=>[])]).then(([featuredPage,recentPage,trendingPage,categoryData,seriesData])=>{
-      if(!active)return
-      const allRecent=recentPage.items??[],interests=user?.interest_category_ids??[]
-      const recent=interests.length?allRecent.filter(post=>post.category_ids?.some(id=>interests.includes(id))):allRecent
-      const featuredCandidates=featuredPage.items??[],featuredMatch=featuredCandidates.find(post=>!interests.length||post.category_ids?.some(id=>interests.includes(id)))
-      setFeatured(featuredMatch??recent[0]??null);setPosts(recent);setTrending(interests.length?(trendingPage.items??[]).filter(post=>post.category_ids?.some(id=>interests.includes(id))):trendingPage.items??[]);setCategories((categoryData??[]).filter(category=>!interests.length||interests.includes(category.id)));setFeaturedSeries(seriesData??[])
-    }).catch(err=>{if(active)setError(err instanceof Error?err.message:'Unable to load the journal')}).finally(()=>{if(active)setLoading(false)})
-    return()=>{active=false}
-  },[user?.interest_category_ids?.join(',')])
-  useEffect(()=>{if(!user){setForYou([]);return};let active=true;api.personalRecommendations(recentPostIds()).then(values=>{if(active)setForYou(values)}).catch(()=>null);return()=>{active=false}},[user])
+  useEffect(() => {
+    let active = true
+    setLoading(true); setError(false)
+    Promise.all([
+      api.posts('?featured=true&limit=1').catch(() => null),
+      api.posts('?limit=12'),
+      api.categories().catch(() => []),
+      api.series(true).catch(() => []),
+    ]).then(([featuredPage, recentPage, nextCategories, nextSeries]) => {
+      if (!active) return
+      setFeatured(featuredPage?.items?.[0] ?? recentPage.items?.[0] ?? null)
+      setPosts(recentPage.items ?? []); setCategories(nextCategories ?? []); setSeries(nextSeries ?? [])
+    }).catch(() => { if (active) setError(true) }).finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [retry])
 
-  const picks=posts.filter(post=>post.id!==featured?.id).slice(0,3)
-  const categorySections=useMemo(()=>categories.map(category=>({category,posts:posts.filter(post=>post.category_ids?.includes(category.id)).slice(0,4)})).filter(section=>section.posts.length>=3).slice(0,3),[categories,posts])
-  const authors=useMemo(()=>{
-    const values=new Map<string,{author:PublicUser;count:number;categoryIds:string[]}>()
-    for(const post of posts){if(!post.author?.id)continue;const current=values.get(post.author.id)??{author:post.author,count:0,categoryIds:[]};current.count++;current.categoryIds.push(...(post.category_ids??[]));values.set(post.author.id,current)}
-    return [...values.values()].sort((a,b)=>b.count-a.count).slice(0,3).map(value=>{const topics=[...new Set(value.categoryIds)].map(id=>categories.find(category=>category.id===id)?.name).filter(Boolean).slice(0,2);return{...value,bio:topics.length?`Writing about ${topics.join(' and ')}.`:'A thoughtful voice in the Lumina community.'}})
-  },[posts,categories])
+  useEffect(() => {
+    setForYou([]); setFeed('latest')
+    if (!user) return
+    let active = true
+    api.personalRecommendations(recentPostIds()).then(values => { if (active) setForYou(values ?? []) }).catch(() => undefined)
+    return () => { active = false }
+  }, [user])
 
-  return <Layout dark><div className="editorial-home">{loading?<div className="home-loading"><StoryGridSkeleton count={6}/></div>:error?<section className="home-error"><h1>The journal is taking a quiet moment.</h1><p>{error}</p><button onClick={()=>window.location.reload()}>Try again</button></section>:<>
-    {featured&&<section className="magazine-hero"><div className="magazine-hero-copy"><span className="magazine-kicker">Featured story</span><h1><Link to={`/blog/${featured.slug}`}>{featured.title}</Link></h1><p>{featured.excerpt}</p><StoryMeta post={featured}/><Link className="magazine-read" to={`/blog/${featured.slug}`}>Read the story <span>→</span></Link></div><Link className="magazine-hero-media" to={`/blog/${featured.slug}`} aria-label={`Read ${featured.title}`}><EditorialImage post={featured} eager/></Link><span className="magazine-issue">LUMINA · JOURNAL</span></section>}
-    {picks.length>=2&&<section className="editors-picks home-section"><header><div><span className="magazine-kicker">Selected by Lumina</span><h2>Editor's Picks</h2></div><Link to="/blog">Explore all stories <span>↗</span></Link></header><div className="picks-layout">{picks.map((post,index)=><article className={`pick-card pick-${index+1}`} key={post.id}><Link to={`/blog/${post.slug}`}><EditorialImage post={post}/><div><span className="pick-index">0{index+1}</span><StoryMeta post={post}/><h3>{post.title}</h3><p>{post.excerpt}</p></div></Link></article>)}</div></section>}
-    {user&&forYou.length>0&&<section className="for-you home-section"><header><div><span className="magazine-kicker">PERSONALIZED FOR {user.name}</span><h2>Dành cho bạn</h2></div><Link to="/blog">Khám phá thêm <span>↗</span></Link></header><div>{forYou.map(post=><BlogCard post={post} key={post.id}/>)}</div></section>}
-    {categorySections.map(({category,posts:categoryPosts})=><section className="category-edition home-section" key={category.id}><header><div><span className="magazine-kicker">Filed under</span><h2>{category.name}</h2></div><Link to={`/categories/${category.slug}`}>View all <span>→</span></Link></header><div><article className="category-lead"><Link to={`/blog/${categoryPosts[0].slug}`}><EditorialImage post={categoryPosts[0]}/><div><StoryMeta post={categoryPosts[0]}/><h3>{categoryPosts[0].title}</h3><p>{categoryPosts[0].excerpt}</p></div></Link></article><div className="category-list">{categoryPosts.slice(1).map((post,index)=><CompactStory post={post} index={index} key={post.id}/>)}</div></div></section>)}
-    {featuredSeries.length>0&&<section className="featured-collections home-section"><header><div><span className="magazine-kicker">Read with intention</span><h2>Featured Collections</h2></div></header><div>{featuredSeries.slice(0,3).map((value,index)=><article key={value.id}><Link to={`/series/${value.slug}`}><div className="collection-cover">{value.cover_image?<img src={value.cover_image.url} alt="" loading="lazy"/>:<span>{String(index+1).padStart(2,'0')}</span>}</div><div><small>{value.posts?.length??0} parts · Curated by {value.author?.name??'Lumina'}</small><h3>{value.title}</h3><p>{value.description}</p><b>Explore the series →</b></div></Link></article>)}</div></section>}
-    {trending.length>0&&<section className="trending-week home-section"><header><div><span className="magazine-kicker">Published in the last 7 days</span><h2>Trending this week</h2></div></header><div>{trending.slice(0,5).map((post,index)=><CompactStory post={post} index={index} key={post.id}/>)}</div></section>}
-    {authors.length>0&&<section className="featured-authors home-section"><header><div><span className="magazine-kicker">Meet the voices</span><h2>Featured Authors</h2></div></header><div>{authors.map(({author,count,bio})=><article key={author.id}><span className="author-portrait">{author.avatar?<img src={author.avatar} alt="" loading="lazy"/>:author.name?.[0]?.toUpperCase()??'L'}</span><div><h3>{author.username?<Link to={`/author/${author.username}`}>{author.name}</Link>:author.name}</h3><p>{author.bio||bio}</p><small>{count} {count===1?'story':'stories'} published</small></div></article>)}</div></section>}
-    <section className="newsletter-cta"><div><span className="magazine-kicker">The Sunday Edition</span><h2>A quieter way to stay curious.</h2><p>One thoughtful collection of stories, delivered occasionally. No noise, no algorithms.</p></div><aside className="newsletter-coming"><span>COMING SOON</span><strong>Newsletter đang được chuẩn bị.</strong><small>Đăng ký sẽ mở khi hệ thống gửi email hoàn thiện.</small></aside></section>
-  </>}</div></Layout>
+  const authors = useMemo(() => {
+    const unique = new Map<string, PublicUser>()
+    posts.forEach(post => { if (post.author?.id && post.author.username) unique.set(post.author.id, post.author) })
+    return [...unique.values()].slice(0, 3)
+  }, [posts])
+  const latest = posts.filter(post => post.id !== featured?.id)
+  const featuredCategory = featured?.categories?.[0] ?? categories.find(item => featured?.category_ids?.includes(item.id))
+  const feedPosts = feed === 'personal' && user ? forYou : posts
+
+  return <Layout dark><div className="discovery-page discovery-home">
+    <header className="discover-welcome">
+      <div><span className="discover-eyebrow"><span className="discover-live-dot" />THE LUMINA JOURNAL</span><h1>{vi ? 'Một chút tò mò.' : 'Stay curious.'}<br /><em>{vi ? 'Một góc nhìn mới.' : 'Find a new perspective.'}</em></h1></div>
+      <div><p>{vi ? 'Đọc một câu chuyện hay. Khám phá một ý tưởng mới. Dành một khoảng lặng cho chính mình.' : 'A good story. A new idea. A little room to think. Find something that stays with you.'}</p><DiscoverySearch onSearch={term => navigate(`/search${term ? `?q=${encodeURIComponent(term)}` : ''}`)} /></div>
+    </header>
+    <DiscoveryTopics categories={categories} />
+    {loading ? <DiscoverySkeleton /> : error ? <DiscoveryState icon={<BookOpen />} title={vi ? 'Chưa thể mở trang đọc' : 'The journal is taking a moment'} text={vi ? 'Kiểm tra kết nối của bạn rồi thử lại nhé.' : 'Check your connection, then give it another try.'}><button className="discover-button" onClick={() => setRetry(value => value + 1)}><RotateCcw aria-hidden="true" />{vi ? 'Thử lại' : 'Try again'}</button></DiscoveryState> : <>
+      {featured ? <section className="discover-lead-grid" aria-label={vi ? 'Điểm đọc hôm nay' : 'Today in the journal'}>
+        <article className="discover-feature">
+          <Link className="discover-feature-cover" to={`/blog/${featured.slug}`} tabIndex={-1} aria-hidden="true"><DiscoveryImage key={featured.thumbnail?.url} post={featured} eager /></Link>
+          <div className="discover-feature-body"><span className="discover-eyebrow"><Sparkles aria-hidden="true" />{featured.is_featured ? (vi ? 'BÀI VIẾT NỔI BẬT' : 'IN THE SPOTLIGHT') : (vi ? 'BẮT ĐẦU TỪ ĐÂY' : 'START READING')}</span>
+            {featuredCategory && <Link className="discover-category" to={`/categories/${featuredCategory.slug}`}>{localizedContent(featuredCategory.name, locale)}</Link>}
+            <h2><Link to={`/blog/${featured.slug}`}>{featured.title}</Link></h2>
+            <p>{featured.excerpt}</p><DiscoveryMeta post={featured} />
+            <Link className="discover-feature-cta" to={`/blog/${featured.slug}`}>{vi ? 'Đọc câu chuyện' : 'Read the story'}<span><ArrowUpRight aria-hidden="true" /></span></Link>
+          </div>
+        </article>
+        {latest.length > 0 && <aside className="discover-reading-next"><header><span className="discover-eyebrow">{vi ? 'TRÊN KỆ ĐỌC' : 'ON THE READING LIST'}</span><h2>{vi ? 'Mới lên trang' : 'Fresh off the press'}</h2></header><ol>{latest.slice(0, 3).map((post, index) => <li key={post.id}><span className="discover-story-number">0{index + 1}</span><div><span>{post.author?.name ?? 'Lumina'}</span><h3><Link to={`/blog/${post.slug}`}>{post.title}</Link></h3></div></li>)}</ol><Link className="discover-text-link" to="/blog">{vi ? 'Khám phá tất cả' : 'Explore all stories'}<ArrowRight aria-hidden="true" /></Link></aside>}
+      </section> : <DiscoveryState icon={<BookOpen />} title={vi ? 'Những câu chuyện đang chờ được viết' : 'Every good story starts somewhere'} text={vi ? 'Chia sẻ góc nhìn của bạn và mở đầu cuộc trò chuyện trên Lumina.' : 'Share your perspective and start a conversation on Lumina.'}><Link className="discover-button" to={user ? '/blog/new' : '/register'}>{vi ? 'Viết bài đầu tiên' : 'Write a story'}<ArrowRight aria-hidden="true" /></Link></DiscoveryState>}
+
+      {posts.length > 0 && <section className="discover-section" aria-labelledby="home-feed-title"><header className="discover-section-heading"><div><span className="discover-eyebrow">{vi ? 'DÀNH CHO GIỜ ĐỌC CỦA BẠN' : 'YOUR NEXT GOOD READ'}</span><h2 id="home-feed-title">{vi ? 'Đọc chậm. Nghĩ sâu.' : 'Read a little. Think a little.'}</h2></div><Link className="discover-text-link" to="/blog">{vi ? 'Tất cả bài viết' : 'View all stories'}<ArrowUpRight aria-hidden="true" /></Link></header>
+        {user && forYou.length > 0 && <div className="discover-feed-tabs" role="group" aria-label={vi ? 'Chọn nguồn bài viết' : 'Choose your feed'}><button type="button" aria-pressed={feed === 'latest'} onClick={() => setFeed('latest')}>{vi ? 'Mới nhất' : 'Latest stories'}</button><button type="button" aria-pressed={feed === 'personal'} onClick={() => setFeed('personal')}><Sparkles aria-hidden="true" />{vi ? 'Dành cho bạn' : 'For you'}</button></div>}
+        <div className="discover-grid">{feedPosts.slice(0, 6).map(post => <DiscoveryCard key={post.id} post={post} categories={categories} />)}</div>
+        <div className="discover-feed-end"><span>{vi ? 'Vẫn còn nhiều câu chuyện đang chờ.' : 'There’s always another perspective.'}</span><Link className="discover-button discover-button-outline" to="/blog">{vi ? 'Tiếp tục khám phá' : 'Keep exploring'}<ArrowRight aria-hidden="true" /></Link></div>
+      </section>}
+
+      {series.length > 0 && <section className="discover-section discover-collections" aria-labelledby="home-series-title"><header className="discover-section-heading"><div><span className="discover-eyebrow"><Layers3 aria-hidden="true" />{vi ? 'ĐI SÂU HƠN MỘT BÀI VIẾT' : 'GO A LITTLE DEEPER'}</span><h2 id="home-series-title">{vi ? 'Một chủ đề, nhiều chương.' : 'One idea. Many chapters.'}</h2></div><p>{vi ? 'Theo dòng câu chuyện qua những bộ bài được tuyển chọn.' : 'Follow a thread through our featured collections.'}</p></header><div className="discover-series-grid">{series.slice(0, 3).map((item, index) => <Link className="discover-series-card" to={`/series/${item.slug}`} key={item.id}><div className="discover-series-cover">{item.cover_image?.url ? <img src={item.cover_image.url} alt="" loading="lazy" /> : <span>0{index + 1}</span>}<Layers3 aria-hidden="true" /></div><div><small>{vi ? `${item.posts?.length ?? 0} phần` : `${item.posts?.length ?? 0} chapters`} · {item.author?.name ?? 'Lumina'}</small><h3>{item.title}</h3><p>{item.description}</p><span className="discover-text-link">{vi ? 'Đọc bộ bài' : 'Explore collection'}<ArrowUpRight aria-hidden="true" /></span></div></Link>)}</div></section>}
+
+      {authors.length > 0 && <section className="discover-section discover-authors" aria-labelledby="home-authors-title"><header className="discover-section-heading"><div><span className="discover-eyebrow">{vi ? 'CON NGƯỜI SAU NHỮNG CON CHỮ' : 'BEHIND THE WORDS'}</span><h2 id="home-authors-title">{vi ? 'Gặp những người kể chuyện.' : 'Meet the storytellers.'}</h2></div></header><div>{authors.map(author => <Link className="discover-author" to={`/author/${author.username}`} key={author.id}><span className="discover-author-avatar">{author.avatar ? <img src={author.avatar} alt="" loading="lazy" /> : author.name[0]}</span><div><h3>{author.name}</h3><p>{author.bio || (vi ? 'Khám phá bài viết và góc nhìn của tác giả.' : 'Explore their stories and perspectives.')}</p></div><ArrowUpRight aria-hidden="true" /></Link>)}</div></section>}
+      <section className="discover-invitation"><div><span className="discover-eyebrow">{vi ? 'CÂU CHUYỆN CỦA BẠN CŨNG ĐÁNG ĐƯỢC KỂ' : 'YOUR PERSPECTIVE BELONGS HERE'}</span><h2>{vi ? 'Bạn đang nghĩ về điều gì?' : 'What’s on your mind?'}</h2><p>{vi ? 'Một trải nghiệm, một bài học, một ý tưởng nhỏ. Bắt đầu từ điều bạn muốn chia sẻ.' : 'An experience, a lesson, a small idea. Start with something you want to share.'}</p></div><Link className="discover-button" to={user ? '/blog/new' : '/register'}>{vi ? 'Viết câu chuyện của bạn' : 'Write your story'}<ArrowUpRight aria-hidden="true" /></Link></section>
+    </>}
+  </div></Layout>
 }

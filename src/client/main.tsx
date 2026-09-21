@@ -38,5 +38,6 @@ import './form-controls.css'
 import './i18n.css'
 import './personal.css'
 import './mobile-first.css'
+import './discovery.css'
 previewFont(savedFont())
 ReactDOM.createRoot(document.getElementById('root')!).render(<React.StrictMode><I18nProvider><BrowserRouter><ToastProvider><PWAProvider><AuthProvider><BookmarkProvider><App/><ConfirmModal/></BookmarkProvider></AuthProvider></PWAProvider></ToastProvider></BrowserRouter></I18nProvider></React.StrictMode>)

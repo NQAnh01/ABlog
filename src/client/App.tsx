@@ -22,7 +22,7 @@ const ResetPasswordPage = lazy(() =>
   })),
 );
 const BlogListPage = lazy(() =>
-  import("./pages/BlogPages").then((module) => ({
+  import("./pages/ExplorePage").then((module) => ({
     default: module.BlogListPage,
   })),
 );
@@ -401,13 +401,13 @@ export default function App() {
             <Route path="/stories/:id/preview" element={<LegacyStoryRedirect page="preview" />} />
             <Route
               path="/categories/:slug"
-              element={<BlogListPage title="Category" />}
+              element={<BlogListPage />}
             />
             <Route
               path="/tags/:slug"
-              element={<BlogListPage title="Tagged Stories" />}
+              element={<BlogListPage />}
             />
-            <Route path="/search" element={<BlogListPage title="Search" />} />
+            <Route path="/search" element={<BlogListPage />} />
             <Route path="/about" element={<InfoPage page="about" />} />
             <Route path="/privacy" element={<InfoPage page="privacy" />} />
             <Route path="/socials" element={<InfoPage page="socials" />} />
